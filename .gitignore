@@ -1,0 +1,32 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+venv/
+.venv/
+
+# Arduino build artifacts
+build/
+*.elf
+*.hex
+*.bin
+
+# Data files (EEG, EMG raw data — keep processed only)
+data/raw/
+
+# Logs
+*.log
+
+# Temp files
+*.tmp
+*.bak
