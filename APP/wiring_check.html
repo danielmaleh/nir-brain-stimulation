@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NIR tPBM Wiring Verification</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="index.css">
+  <style>
+    /* --- Wiring verification page layout --- */
+    .wiring-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.7fr) minmax(340px, 1fr);
+      gap: 1.5rem;
+      align-items: start;
+    }
+
+    .schematic-panel {
+      background-color: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 1rem;
+      overflow-x: auto;
+    }
+
+    .schematic-panel svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      min-width: 640px;
+    }
+
+    /* --- SVG element styling --- */
+    .comp-box {
+      fill: rgba(255, 255, 255, 0.02);
+      stroke: rgba(255, 255, 255, 0.18);
+      stroke-width: 1.2;
+    }
+    .comp-title {
+      fill: var(--text-main);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .comp-sub {
+      fill: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: 10px;
+    }
+    .pin-label {
+      fill: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+    }
+    .net {
+      fill: none;
+      stroke: #52525b;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      transition: stroke 0.15s ease;
+    }
+    .net-hit {
+      fill: none;
+      stroke: rgba(0,0,0,0);
+      stroke-width: 16;
+      pointer-events: stroke;
+      cursor: pointer;
+    }
+    g[data-net] { cursor: pointer; }
+    g[data-net] .sym-stroke { transition: stroke 0.15s ease; stroke: #52525b; }
+    g[data-net] .sym-fill   { transition: fill 0.15s ease; fill: #52525b; }
+    g[data-net] text { font-family: var(--font-mono); font-size: 9.5px; fill: #71717a; }
+
+    /* selected (currently inspected) net */
+    .net.sel, g.sel .sym-stroke { stroke: var(--accent-secondary) !important; }
+    g.sel .sym-fill { fill: var(--accent-secondary) !important; }
+    .net.sel { stroke-width: 3.2; filter: drop-shadow(0 0 4px rgba(6,182,212,0.6)); }
+
+    /* confirmed net */
+    .net.ok, g.ok .sym-stroke { stroke: var(--color-success); }
+    g.ok .sym-fill { fill: var(--color-success); }
+    g.ok text { fill: var(--color-success); }
+
+    .junction { fill: #a1a1aa; }
+    .net.ok + .junction { fill: var(--color-success); }
+    .dashed-note {
+      fill: none;
+      stroke: #52525b;
+      stroke-width: 1.4;
+      stroke-dasharray: 5 4;
+    }
+    .note-text {
+      fill: #71717a;
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      font-style: italic;
+    }
+
+    /* --- Right column --- */
+    .check-col { display: flex; flex-direction: column; gap: 1rem; }
+
+    .progress-card {
+      background-color: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 1rem 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    .progress-count {
+      font-family: var(--font-mono);
+      font-size: 1.4rem;
+      font-weight: 600;
+      color: var(--text-main);
+      white-space: nowrap;
+    }
+    .progress-count .done { color: var(--color-success); }
+    .progress-track {
+      flex: 1;
+      height: 8px;
+      border-radius: 4px;
+      background-color: rgba(255,255,255,0.06);
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 4px;
+      background: linear-gradient(90deg, var(--accent-secondary), var(--color-success));
+      transition: width 0.3s ease;
+    }
+    .btn-reset {
+      background: none;
+      border: 1px solid var(--border-color);
+      color: var(--text-muted);
+      font-family: var(--font-sans);
+      font-size: 0.75rem;
+      padding: 0.4rem 0.7rem;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .btn-reset:hover { color: var(--color-danger); border-color: var(--color-danger); }
+
+    .detail-card {
+      background-color: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 1.25rem;
+      min-height: 165px;
+    }
+    .detail-card h3 {
+      margin: 0 0 0.25rem 0;
+      font-size: 1rem;
+      color: var(--text-main);
+      font-weight: 600;
+    }
+    .detail-endpoints {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--accent-secondary);
+      margin-bottom: 0.6rem;
+    }
+    .detail-instructions {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      line-height: 1.55;
+      margin-bottom: 0.9rem;
+    }
+    .detail-instructions code {
+      font-family: var(--font-mono);
+      background-color: rgba(255,255,255,0.07);
+      border-radius: 4px;
+      padding: 0.05rem 0.35rem;
+      color: var(--text-main);
+      font-size: 0.78rem;
+    }
+    .detail-placeholder { color: var(--text-muted); font-size: 0.85rem; padding-top: 2rem; text-align: center; }
+
+    .btn-confirm {
+      width: 100%;
+      border: none;
+      border-radius: 10px;
+      padding: 0.65rem;
+      font-family: var(--font-sans);
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      background-color: var(--color-success);
+      color: #052e22;
+      transition: opacity 0.15s ease;
+    }
+    .btn-confirm:hover { opacity: 0.85; }
+    .btn-confirm.undo {
+      background-color: rgba(255,255,255,0.06);
+      color: var(--text-muted);
+      border: 1px solid var(--border-color);
+    }
+
+    .checklist-card {
+      background-color: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 0.75rem;
+      max-height: 52vh;
+      overflow-y: auto;
+    }
+    .check-group-title {
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      padding: 0.7rem 0.5rem 0.35rem 0.5rem;
+    }
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.45rem 0.5rem;
+      border-radius: 8px;
+      cursor: pointer;
+      border: 1px solid transparent;
+    }
+    .check-row:hover { background-color: rgba(255,255,255,0.04); }
+    .check-row.sel { border-color: var(--accent-secondary); background-color: rgba(6,182,212,0.07); }
+    .check-dot {
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      border: 1.5px solid #52525b;
+      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 9px; color: #052e22; font-weight: 700;
+    }
+    .check-row.ok .check-dot { background-color: var(--color-success); border-color: var(--color-success); }
+    .check-row.ok .check-dot::after { content: '✓'; }
+    .check-label { font-size: 0.82rem; color: var(--text-main); flex: 1; }
+    .check-row.ok .check-label { color: var(--text-muted); }
+    .check-pins { font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-muted); white-space: nowrap; }
+
+    .page-note {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 0.75rem;
+      line-height: 1.5;
+    }
+    .page-note code { font-family: var(--font-mono); background-color: rgba(255,255,255,0.07); border-radius: 4px; padding: 0.05rem 0.3rem; }
+
+    @media (max-width: 1050px) {
+      .wiring-layout { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell" style="max-width: 1500px; margin: 0 auto; padding: 1.5rem;">
+    <header style="display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; margin-bottom:1.25rem;">
+      <div>
+        <h1 style="margin:0; font-size:1.35rem; font-weight:600; color:var(--text-main);">Wiring Verification Schematic</h1>
+        <p style="margin:0.25rem 0 0 0; font-size:0.85rem; color:var(--text-muted);">
+          Click any wire (or checklist row) to see how to verify it, then mark it confirmed.
+          Source of truth: <span style="font-family:var(--font-mono);">firmware/main/pins.h</span> · <span style="font-family:var(--font-mono);">hardware/wiring_guide.md</span>
+        </p>
+      </div>
+      <div style="font-size:0.75rem; color:var(--text-muted); font-family:var(--font-mono);">
+        <span style="color:#52525b;">━</span> unverified&nbsp;&nbsp;
+        <span style="color:var(--accent-secondary);">━</span> selected&nbsp;&nbsp;
+        <span style="color:var(--color-success);">━</span> confirmed
+      </div>
+    </header>
+
+    <div class="wiring-layout">
+      <div>
+        <div class="schematic-panel">
+          <svg viewBox="0 0 1160 780" xmlns="http://www.w3.org/2000/svg" id="schematic-svg" role="img" aria-label="Wiring schematic of the NIR tPBM device">
+            <defs>
+              <!-- 5V net-label symbol -->
+              <g id="sym-5v">
+                <circle class="sym-stroke" r="6" fill="none" stroke-width="1.6"></circle>
+                <text y="-10" text-anchor="middle">5V</text>
+              </g>
+              <!-- Ground net-label symbol -->
+              <g id="sym-gnd">
+                <line class="sym-stroke" x1="-8" y1="0" x2="8" y2="0" stroke-width="1.6"></line>
+                <line class="sym-stroke" x1="-5" y1="4" x2="5" y2="4" stroke-width="1.6"></line>
+                <line class="sym-stroke" x1="-2" y1="8" x2="2" y2="8" stroke-width="1.6"></line>
+              </g>
+            </defs>
+
+            <!-- ====================== COMPONENT BOXES ====================== -->
+            <!-- Arduino Uno -->
+            <rect class="comp-box" x="70" y="200" width="200" height="430" rx="10"></rect>
+            <text class="comp-title" x="90" y="228">Arduino Uno</text>
+            <text class="comp-sub" x="90" y="244">USB → laptop (115200)</text>
+            <text class="pin-label" x="262" y="244" text-anchor="end">5V</text>
+            <text class="pin-label" x="262" y="284" text-anchor="end">GND</text>
+            <text class="pin-label" x="262" y="324" text-anchor="end">D2</text>
+            <text class="pin-label" x="262" y="364" text-anchor="end">D6</text>
+            <text class="pin-label" x="262" y="399" text-anchor="end">D7</text>
+            <text class="pin-label" x="262" y="434" text-anchor="end">D8</text>
+            <text class="pin-label" x="262" y="474" text-anchor="end">D9</text>
+            <text class="pin-label" x="262" y="509" text-anchor="end">D10</text>
+            <text class="pin-label" x="262" y="549" text-anchor="end">D13</text>
+            <!-- optional STBY control note -->
+            <text class="pin-label" x="262" y="589" text-anchor="end" opacity="0.55">D12</text>
+            <path class="dashed-note" d="M 270 585 L 380 585 L 380 344 L 510 344"></path>
+            <text class="note-text" x="292" y="578">optional STBY control (TB_STBY_CONTROL=1)</text>
+
+            <!-- TB6612FNG -->
+            <rect class="comp-box" x="520" y="220" width="180" height="340" rx="10"></rect>
+            <text class="comp-title" x="558" y="205">TB6612FNG</text>
+            <text class="pin-label" x="528" y="254">VM</text>
+            <text class="pin-label" x="528" y="284">VCC</text>
+            <text class="pin-label" x="528" y="314">GND</text>
+            <text class="pin-label" x="528" y="344">STBY</text>
+            <text class="pin-label" x="528" y="374">AIN1</text>
+            <text class="pin-label" x="528" y="404">AIN2</text>
+            <text class="pin-label" x="528" y="434">BIN1</text>
+            <text class="pin-label" x="528" y="464">BIN2</text>
+            <text class="pin-label" x="528" y="504">PWMA</text>
+            <text class="pin-label" x="528" y="534">PWMB</text>
+            <text class="pin-label" x="692" y="404" text-anchor="end">AO1</text>
+            <text class="pin-label" x="692" y="439" text-anchor="end">AO2</text>
+            <text class="pin-label" x="692" y="494" text-anchor="end">BO1</text>
+            <text class="pin-label" x="692" y="529" text-anchor="end">BO2</text>
+
+            <!-- DS18B20 -->
+            <rect class="comp-box" x="330" y="40" width="200" height="90" rx="10"></rect>
+            <text class="comp-title" x="350" y="75">DS18B20</text>
+            <text class="comp-sub" x="350" y="92">temp sensor (1-Wire)</text>
+            <text class="pin-label" x="360" y="122" text-anchor="middle">VCC</text>
+            <text class="pin-label" x="440" y="122" text-anchor="middle">DATA</text>
+            <text class="pin-label" x="500" y="122" text-anchor="middle">GND</text>
+
+            <!-- 12V PSU -->
+            <rect class="comp-box" x="780" y="50" width="220" height="90" rx="10"></rect>
+            <text class="comp-title" x="800" y="85">12 V Supply</text>
+            <text class="comp-sub" x="800" y="102">wall adapter, switching</text>
+            <text class="pin-label" x="792" y="80">+</text>
+            <text class="pin-label" x="792" y="122">−</text>
+
+            <!-- NIR strip -->
+            <rect class="comp-box" x="850" y="370" width="220" height="95" rx="10"></rect>
+            <text class="comp-title" x="870" y="400">NIR LED Strip</text>
+            <text class="comp-sub" x="870" y="417">850 nm · short segment &lt;1.2 A</text>
+            <text class="pin-label" x="862" y="396">+</text>
+            <text class="pin-label" x="862" y="441">−</text>
+
+            <!-- Heater -->
+            <rect class="comp-box" x="850" y="480" width="220" height="95" rx="10"></rect>
+            <text class="comp-title" x="870" y="510">Heater Ring</text>
+            <text class="comp-sub" x="870" y="527">warming control · &lt;1.2 A</text>
+            <text class="pin-label" x="862" y="496">a</text>
+            <text class="pin-label" x="862" y="551">b</text>
+
+            <!-- ====================== NETS (wires) ====================== -->
+            <g id="nets">
+              <!-- 12V+ -> VM -->
+              <path class="net" data-net="vm-12v" d="M 780 85 L 510 85 L 510 250 L 520 250"></path>
+              <!-- PSU - -> common ground -->
+              <g data-net="gnd-psu">
+                <path class="net" d="M 780 115 L 740 115 L 740 150"></path>
+                <use href="#sym-gnd" x="740" y="152"></use>
+              </g>
+              <!-- Arduino 5V -> TB VCC -->
+              <path class="net" data-net="vcc-5v" d="M 270 240 L 500 240 L 500 280 L 520 280"></path>
+              <!-- Arduino GND -> TB GND -->
+              <path class="net" data-net="gnd-common" d="M 270 280 L 480 280 L 480 310 L 520 310"></path>
+              <!-- STBY strap -->
+              <g data-net="stby-5v">
+                <path class="net" d="M 520 340 L 488 340"></path>
+                <use href="#sym-5v" x="478" y="340"></use>
+              </g>
+              <!-- AIN1 strap HIGH -->
+              <g data-net="ain1">
+                <path class="net" d="M 520 370 L 488 370"></path>
+                <use href="#sym-5v" x="478" y="370"></use>
+              </g>
+              <!-- AIN2 strap LOW -->
+              <g data-net="ain2">
+                <path class="net" d="M 520 400 L 480 400 L 480 406"></path>
+                <use href="#sym-gnd" x="480" y="408"></use>
+              </g>
+              <!-- BIN1 strap HIGH -->
+              <g data-net="bin1">
+                <path class="net" d="M 520 430 L 488 430"></path>
+                <use href="#sym-5v" x="478" y="430"></use>
+              </g>
+              <!-- BIN2 strap LOW -->
+              <g data-net="bin2">
+                <path class="net" d="M 520 460 L 480 460 L 480 466"></path>
+                <use href="#sym-gnd" x="480" y="468"></use>
+              </g>
+              <!-- D9 -> PWMA -->
+              <path class="net" data-net="pwma" d="M 270 470 L 440 470 L 440 500 L 520 500"></path>
+              <!-- D10 -> PWMB -->
+              <path class="net" data-net="pwmb" d="M 270 505 L 470 505 L 470 530 L 520 530"></path>
+              <!-- AO1 / AO2 -> NIR -->
+              <path class="net" data-net="ao1" d="M 700 400 L 850 400"></path>
+              <path class="net" data-net="ao2" d="M 700 435 L 850 435"></path>
+              <!-- BO1 / BO2 -> heater -->
+              <path class="net" data-net="bo1" d="M 700 490 L 850 490"></path>
+              <path class="net" data-net="bo2" d="M 700 525 L 790 525 L 790 545 L 850 545"></path>
+              <!-- DS18B20 VCC -->
+              <g data-net="ds-vcc">
+                <path class="net" d="M 360 130 L 360 200"></path>
+                <use href="#sym-5v" x="360" y="212"></use>
+              </g>
+              <!-- DS18B20 GND -->
+              <g data-net="ds-gnd">
+                <path class="net" d="M 500 130 L 500 156"></path>
+                <use href="#sym-gnd" x="500" y="158"></use>
+              </g>
+              <!-- DS18B20 DATA -> D2 -->
+              <path class="net" data-net="ds-data" d="M 440 130 L 440 320 L 270 320"></path>
+              <!-- 4.7k pull-up -->
+              <g data-net="ds-pullup">
+                <path class="net" d="M 440 180 L 425 180"></path>
+                <rect class="sym-stroke" x="393" y="173" width="32" height="14" fill="none" stroke-width="1.6"></rect>
+                <path class="net" d="M 393 180 L 360 180"></path>
+                <text x="409" y="167" text-anchor="middle">4.7kΩ</text>
+              </g>
+              <circle class="junction" cx="440" cy="180" r="3.5"></circle>
+              <circle class="junction" cx="360" cy="180" r="3.5"></circle>
+
+              <!-- Indicator LEDs -->
+              <g data-net="led-heating">
+                <path class="net" d="M 270 360 L 300 360 L 300 620 L 340 620 L 340 640"></path>
+                <rect class="sym-stroke" x="331" y="640" width="18" height="24" fill="none" stroke-width="1.6"></rect>
+                <path class="net" d="M 340 664 L 340 672"></path>
+                <circle class="sym-stroke" cx="340" cy="682" r="9" fill="none" stroke-width="1.6"></circle>
+                <path class="net" d="M 340 691 L 340 700"></path>
+                <use href="#sym-gnd" x="340" y="702"></use>
+                <text x="340" y="738" text-anchor="middle">Heat D6</text>
+              </g>
+              <g data-net="led-10hz">
+                <path class="net" d="M 270 395 L 312 395 L 312 605 L 420 605 L 420 640"></path>
+                <rect class="sym-stroke" x="411" y="640" width="18" height="24" fill="none" stroke-width="1.6"></rect>
+                <path class="net" d="M 420 664 L 420 672"></path>
+                <circle class="sym-stroke" cx="420" cy="682" r="9" fill="none" stroke-width="1.6"></circle>
+                <path class="net" d="M 420 691 L 420 700"></path>
+                <use href="#sym-gnd" x="420" y="702"></use>
+                <text x="420" y="738" text-anchor="middle">10Hz D7</text>
+              </g>
+              <g data-net="led-40hz">
+                <path class="net" d="M 270 430 L 324 430 L 324 590 L 500 590 L 500 640"></path>
+                <rect class="sym-stroke" x="491" y="640" width="18" height="24" fill="none" stroke-width="1.6"></rect>
+                <path class="net" d="M 500 664 L 500 672"></path>
+                <circle class="sym-stroke" cx="500" cy="682" r="9" fill="none" stroke-width="1.6"></circle>
+                <path class="net" d="M 500 691 L 500 700"></path>
+                <use href="#sym-gnd" x="500" y="702"></use>
+                <text x="500" y="738" text-anchor="middle">40Hz D8</text>
+              </g>
+              <g data-net="led-error">
+                <path class="net" d="M 270 545 L 336 545 L 336 575 L 580 575 L 580 640"></path>
+                <rect class="sym-stroke" x="571" y="640" width="18" height="24" fill="none" stroke-width="1.6"></rect>
+                <path class="net" d="M 580 664 L 580 672"></path>
+                <circle class="sym-stroke" cx="580" cy="682" r="9" fill="none" stroke-width="1.6"></circle>
+                <path class="net" d="M 580 691 L 580 700"></path>
+                <use href="#sym-gnd" x="580" y="702"></use>
+                <text x="580" y="738" text-anchor="middle">Err D13</text>
+              </g>
+              <text class="note-text" x="340" y="762">220 Ω + LED, cathode to GND (Err D13 may use on-board L LED)</text>
+            </g>
+          </svg>
+        </div>
+        <p class="page-note">
+          Straps drawn with a <strong>5V</strong> circle or ground symbol connect to the Arduino 5V pin / common ground — every ground symbol is the <em>same</em> node:
+          Arduino GND, TB6612 GND and the 12 V supply (−) must all be tied together.
+          Functional checks use <code>firmware/io_test</code> + <code>io_test.html</code> (Chrome, one page connected at a time).
+        </p>
+      </div>
+
+      <div class="check-col">
+        <div class="progress-card">
+          <div class="progress-count"><span class="done" id="prog-done">0</span>&thinsp;/&thinsp;<span id="prog-total">0</span></div>
+          <div class="progress-track"><div class="progress-fill" id="prog-fill"></div></div>
+          <button class="btn-reset" id="btn-reset" title="Clear all confirmations">Reset</button>
+        </div>
+
+        <div class="detail-card" id="detail-card">
+          <div class="detail-placeholder">Select a wire on the schematic or a row below.</div>
+        </div>
+
+        <div class="checklist-card" id="checklist"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="wiring_check.js"></script>
+</body>
+</html>
