@@ -275,7 +275,7 @@
     <div class="wiring-layout">
       <div>
         <div class="schematic-panel">
-          <svg viewBox="0 0 1160 780" xmlns="http://www.w3.org/2000/svg" id="schematic-svg" role="img" aria-label="Wiring schematic of the NIR tPBM device">
+          <svg viewBox="0 0 1160 800" xmlns="http://www.w3.org/2000/svg" id="schematic-svg" role="img" aria-label="Wiring schematic of the NIR tPBM device">
             <defs>
               <!-- 5V net-label symbol -->
               <g id="sym-5v">
@@ -288,182 +288,215 @@
                 <line class="sym-stroke" x1="-5" y1="4" x2="5" y2="4" stroke-width="1.6"></line>
                 <line class="sym-stroke" x1="-2" y1="8" x2="2" y2="8" stroke-width="1.6"></line>
               </g>
+              <!-- Breakout pad: silver ring, dark hole -->
+              <g id="pad">
+                <circle r="5.5" fill="#18181b" stroke="#d4d4d8" stroke-width="2"></circle>
+              </g>
             </defs>
 
             <!-- ====================== COMPONENT BOXES ====================== -->
-            <!-- Arduino Uno -->
-            <rect class="comp-box" x="70" y="200" width="200" height="430" rx="10"></rect>
-            <text class="comp-title" x="90" y="228">Arduino Uno</text>
-            <text class="comp-sub" x="90" y="244">USB → laptop (115200)</text>
-            <text class="pin-label" x="262" y="244" text-anchor="end">5V</text>
-            <text class="pin-label" x="262" y="284" text-anchor="end">GND</text>
-            <text class="pin-label" x="262" y="324" text-anchor="end">D2</text>
-            <text class="pin-label" x="262" y="364" text-anchor="end">D6</text>
-            <text class="pin-label" x="262" y="399" text-anchor="end">D7</text>
-            <text class="pin-label" x="262" y="434" text-anchor="end">D8</text>
-            <text class="pin-label" x="262" y="474" text-anchor="end">D9</text>
-            <text class="pin-label" x="262" y="509" text-anchor="end">D10</text>
-            <text class="pin-label" x="262" y="549" text-anchor="end">D13</text>
-            <!-- optional STBY control note -->
-            <text class="pin-label" x="262" y="589" text-anchor="end" opacity="0.55">D12</text>
-            <path class="dashed-note" d="M 270 585 L 380 585 L 380 344 L 510 344"></path>
-            <text class="note-text" x="292" y="578">optional STBY control (TB_STBY_CONTROL=1)</text>
 
-            <!-- TB6612FNG -->
-            <rect class="comp-box" x="520" y="220" width="180" height="340" rx="10"></rect>
-            <text class="comp-title" x="558" y="205">TB6612FNG</text>
-            <text class="pin-label" x="528" y="254">VM</text>
-            <text class="pin-label" x="528" y="284">VCC</text>
-            <text class="pin-label" x="528" y="314">GND</text>
-            <text class="pin-label" x="528" y="344">STBY</text>
-            <text class="pin-label" x="528" y="374">AIN1</text>
-            <text class="pin-label" x="528" y="404">AIN2</text>
-            <text class="pin-label" x="528" y="434">BIN1</text>
-            <text class="pin-label" x="528" y="464">BIN2</text>
-            <text class="pin-label" x="528" y="504">PWMA</text>
-            <text class="pin-label" x="528" y="534">PWMB</text>
-            <text class="pin-label" x="692" y="404" text-anchor="end">AO1</text>
-            <text class="pin-label" x="692" y="439" text-anchor="end">AO2</text>
-            <text class="pin-label" x="692" y="494" text-anchor="end">BO1</text>
-            <text class="pin-label" x="692" y="529" text-anchor="end">BO2</text>
+            <!-- 12V PSU (top-left) -->
+            <rect class="comp-box" x="60" y="50" width="200" height="90" rx="10"></rect>
+            <text class="comp-title" x="80" y="85">12 V Supply</text>
+            <text class="comp-sub" x="80" y="102">wall adapter, switching</text>
+            <text class="pin-label" x="248" y="80" text-anchor="end">+</text>
+            <text class="pin-label" x="248" y="122" text-anchor="end">−</text>
 
-            <!-- DS18B20 -->
-            <rect class="comp-box" x="330" y="40" width="200" height="90" rx="10"></rect>
-            <text class="comp-title" x="350" y="75">DS18B20</text>
-            <text class="comp-sub" x="350" y="92">temp sensor (1-Wire)</text>
-            <text class="pin-label" x="360" y="122" text-anchor="middle">VCC</text>
-            <text class="pin-label" x="440" y="122" text-anchor="middle">DATA</text>
-            <text class="pin-label" x="500" y="122" text-anchor="middle">GND</text>
+            <!-- NIR strip (left) -->
+            <rect class="comp-box" x="60" y="330" width="220" height="95" rx="10"></rect>
+            <text class="comp-title" x="80" y="360">NIR LED Strip</text>
+            <text class="comp-sub" x="80" y="377">850 nm · short segment &lt;1.2 A</text>
+            <text class="pin-label" x="268" y="366" text-anchor="end">+</text>
+            <text class="pin-label" x="268" y="406" text-anchor="end">−</text>
 
-            <!-- 12V PSU -->
-            <rect class="comp-box" x="780" y="50" width="220" height="90" rx="10"></rect>
-            <text class="comp-title" x="800" y="85">12 V Supply</text>
-            <text class="comp-sub" x="800" y="102">wall adapter, switching</text>
-            <text class="pin-label" x="792" y="80">+</text>
-            <text class="pin-label" x="792" y="122">−</text>
+            <!-- Heater (left) -->
+            <rect class="comp-box" x="60" y="450" width="220" height="95" rx="10"></rect>
+            <text class="comp-title" x="80" y="480">Heater Ring</text>
+            <text class="comp-sub" x="80" y="497">warming control · &lt;1.2 A</text>
+            <text class="pin-label" x="268" y="476" text-anchor="end">a</text>
+            <text class="pin-label" x="268" y="516" text-anchor="end">b</text>
 
-            <!-- NIR strip -->
-            <rect class="comp-box" x="850" y="370" width="220" height="95" rx="10"></rect>
-            <text class="comp-title" x="870" y="400">NIR LED Strip</text>
-            <text class="comp-sub" x="870" y="417">850 nm · short segment &lt;1.2 A</text>
-            <text class="pin-label" x="862" y="396">+</text>
-            <text class="pin-label" x="862" y="441">−</text>
+            <!-- ============ TB6612FNG breakout module (realistic) ============ -->
+            <g id="tb6612-module">
+              <rect x="430" y="210" width="210" height="360" rx="10" fill="#7f1d1d" stroke="#b91c1c" stroke-width="1.5"></rect>
+              <!-- mounting holes -->
+              <circle cx="452" cy="230" r="7" fill="#09090b" stroke="#d4d4d8" stroke-width="1.5"></circle>
+              <circle cx="618" cy="230" r="7" fill="#09090b" stroke="#d4d4d8" stroke-width="1.5"></circle>
+              <circle cx="452" cy="550" r="7" fill="#09090b" stroke="#d4d4d8" stroke-width="1.5"></circle>
+              <circle cx="618" cy="550" r="7" fill="#09090b" stroke="#d4d4d8" stroke-width="1.5"></circle>
+              <!-- SMD cap + IC -->
+              <rect x="515" y="240" width="40" height="18" rx="3" fill="#d97706" stroke="#92400e"></rect>
+              <rect x="500" y="330" width="70" height="90" rx="4" fill="#18181b" stroke="#3f3f46"></rect>
+              <text x="535" y="444" text-anchor="middle" fill="#fca5a5" font-family="var(--font-mono)" font-size="11" font-weight="600">TB6612FNG</text>
+              <!-- left pad column (pins 1-8): VM VCC GND A01 A02 B01 B02 GND -->
+              <use href="#pad" x="438" y="250"></use><text class="pin-label" x="452" y="254" fill="#fecaca">VM</text>
+              <use href="#pad" x="438" y="290"></use><text class="pin-label" x="452" y="294" fill="#fecaca">VCC</text>
+              <use href="#pad" x="438" y="330"></use><text class="pin-label" x="452" y="334" fill="#fecaca">GND</text>
+              <use href="#pad" x="438" y="370"></use><text class="pin-label" x="452" y="374" fill="#fecaca">A01</text>
+              <use href="#pad" x="438" y="410"></use><text class="pin-label" x="452" y="414" fill="#fecaca">A02</text>
+              <use href="#pad" x="438" y="450"></use><text class="pin-label" x="452" y="454" fill="#fecaca">B01</text>
+              <use href="#pad" x="438" y="490"></use><text class="pin-label" x="452" y="494" fill="#fecaca">B02</text>
+              <use href="#pad" x="438" y="530"></use><text class="pin-label" x="452" y="534" fill="#fecaca">GND</text>
+              <!-- right pad column (pins 16-9): PWMA AIN2 AIN1 STBY BIN1 BIN2 PWMB GND -->
+              <use href="#pad" x="632" y="250"></use><text class="pin-label" x="618" y="254" text-anchor="end" fill="#fecaca">PWMA</text>
+              <use href="#pad" x="632" y="290"></use><text class="pin-label" x="618" y="294" text-anchor="end" fill="#fecaca">AIN2</text>
+              <use href="#pad" x="632" y="330"></use><text class="pin-label" x="618" y="334" text-anchor="end" fill="#fecaca">AIN1</text>
+              <use href="#pad" x="632" y="370"></use><text class="pin-label" x="618" y="374" text-anchor="end" fill="#fecaca">STBY</text>
+              <use href="#pad" x="632" y="410"></use><text class="pin-label" x="618" y="414" text-anchor="end" fill="#fecaca">BIN1</text>
+              <use href="#pad" x="632" y="450"></use><text class="pin-label" x="618" y="454" text-anchor="end" fill="#fecaca">BIN2</text>
+              <use href="#pad" x="632" y="490"></use><text class="pin-label" x="618" y="494" text-anchor="end" fill="#fecaca">PWMB</text>
+              <use href="#pad" x="632" y="530"></use><text class="pin-label" x="618" y="534" text-anchor="end" fill="#fecaca">GND</text>
+              <!-- pin numbers, as printed on the real module -->
+              <text class="comp-sub" x="420" y="254" text-anchor="end">1</text>
+              <text class="comp-sub" x="420" y="294" text-anchor="end">2</text>
+              <text class="comp-sub" x="420" y="334" text-anchor="end">3</text>
+              <text class="comp-sub" x="420" y="374" text-anchor="end">4</text>
+              <text class="comp-sub" x="420" y="414" text-anchor="end">5</text>
+              <text class="comp-sub" x="420" y="454" text-anchor="end">6</text>
+              <text class="comp-sub" x="420" y="494" text-anchor="end">7</text>
+              <text class="comp-sub" x="420" y="534" text-anchor="end">8</text>
+              <text class="comp-sub" x="650" y="254">16</text>
+              <text class="comp-sub" x="650" y="294">15</text>
+              <text class="comp-sub" x="650" y="334">14</text>
+              <text class="comp-sub" x="650" y="374">13</text>
+              <text class="comp-sub" x="650" y="414">12</text>
+              <text class="comp-sub" x="650" y="454">11</text>
+              <text class="comp-sub" x="650" y="494">10</text>
+              <text class="comp-sub" x="650" y="534">9</text>
+              <text class="comp-title" x="430" y="200">TB6612FNG breakout</text>
+            </g>
 
-            <!-- Heater -->
-            <rect class="comp-box" x="850" y="480" width="220" height="95" rx="10"></rect>
-            <text class="comp-title" x="870" y="510">Heater Ring</text>
-            <text class="comp-sub" x="870" y="527">warming control · &lt;1.2 A</text>
-            <text class="pin-label" x="862" y="496">a</text>
-            <text class="pin-label" x="862" y="551">b</text>
+            <!-- DS18B20 (top-right) -->
+            <rect class="comp-box" x="680" y="40" width="210" height="90" rx="10"></rect>
+            <text class="comp-title" x="700" y="75">DS18B20</text>
+            <text class="comp-sub" x="700" y="92">temp sensor (1-Wire)</text>
+            <text class="pin-label" x="710" y="122" text-anchor="middle">VCC</text>
+            <text class="pin-label" x="790" y="122" text-anchor="middle">DATA</text>
+            <text class="pin-label" x="850" y="122" text-anchor="middle">GND</text>
+
+            <!-- Arduino Uno (right) -->
+            <rect class="comp-box" x="880" y="210" width="200" height="430" rx="10"></rect>
+            <text class="comp-title" x="960" y="238">Arduino Uno</text>
+            <text class="comp-sub" x="960" y="254">USB → laptop</text>
+            <text class="pin-label" x="888" y="244">5V</text>
+            <text class="pin-label" x="888" y="284">GND</text>
+            <text class="pin-label" x="888" y="324">D2</text>
+            <text class="pin-label" x="888" y="364">D6</text>
+            <text class="pin-label" x="888" y="399">D7</text>
+            <text class="pin-label" x="888" y="434">D8</text>
+            <text class="pin-label" x="888" y="474">D9</text>
+            <text class="pin-label" x="888" y="509">D10</text>
+            <text class="pin-label" x="888" y="549">D13</text>
+            <text class="pin-label" x="888" y="589" opacity="0.55">D12</text>
+            <path class="dashed-note" d="M 690 370 L 800 370 L 800 585 L 880 585"></path>
+            <text class="note-text" x="688" y="604">optional STBY→D12 (TB_STBY_CONTROL=1)</text>
 
             <!-- ====================== NETS (wires) ====================== -->
             <g id="nets">
-              <!-- 12V+ -> VM -->
-              <path class="net" data-net="vm-12v" d="M 780 85 L 510 85 L 510 250 L 520 250"></path>
-              <!-- PSU - -> common ground -->
-              <g data-net="gnd-psu">
-                <path class="net" d="M 780 115 L 740 115 L 740 150"></path>
-                <use href="#sym-gnd" x="740" y="152"></use>
-              </g>
-              <!-- Arduino 5V -> TB VCC -->
-              <path class="net" data-net="vcc-5v" d="M 270 240 L 500 240 L 500 280 L 520 280"></path>
-              <!-- Arduino GND -> TB GND -->
-              <path class="net" data-net="gnd-common" d="M 270 280 L 480 280 L 480 310 L 520 310"></path>
-              <!-- STBY strap -->
+              <!-- 12V+ -> VM (pin 1) -->
+              <path class="net" data-net="vm-12v" d="M 260 85 L 340 85 L 340 250 L 438 250"></path>
+              <!-- PSU - -> module GND (pin 3): the common-ground tie -->
+              <path class="net" data-net="gnd-psu" d="M 260 115 L 310 115 L 310 330 L 438 330"></path>
+              <!-- Arduino 5V -> VCC (pin 2), routed over the module -->
+              <path class="net" data-net="vcc-5v" d="M 880 240 L 760 240 L 760 175 L 400 175 L 400 290 L 438 290"></path>
+              <!-- Arduino GND -> module GND (pin 9) -->
+              <path class="net" data-net="gnd-common" d="M 632 530 L 740 530 L 740 280 L 880 280"></path>
+              <!-- STBY strap (pin 13) -->
               <g data-net="stby-5v">
-                <path class="net" d="M 520 340 L 488 340"></path>
-                <use href="#sym-5v" x="478" y="340"></use>
+                <path class="net" d="M 632 370 L 662 370"></path>
+                <use href="#sym-5v" x="672" y="370"></use>
               </g>
-              <!-- AIN1 strap HIGH -->
+              <!-- AIN1 strap HIGH (pin 14) -->
               <g data-net="ain1">
-                <path class="net" d="M 520 370 L 488 370"></path>
-                <use href="#sym-5v" x="478" y="370"></use>
+                <path class="net" d="M 632 330 L 662 330"></path>
+                <use href="#sym-5v" x="672" y="330"></use>
               </g>
-              <!-- AIN2 strap LOW -->
+              <!-- AIN2 strap LOW (pin 15) -->
               <g data-net="ain2">
-                <path class="net" d="M 520 400 L 480 400 L 480 406"></path>
-                <use href="#sym-gnd" x="480" y="408"></use>
+                <path class="net" d="M 632 290 L 665 290"></path>
+                <use href="#sym-gnd" x="667" y="292"></use>
               </g>
-              <!-- BIN1 strap HIGH -->
+              <!-- BIN1 strap HIGH (pin 12) -->
               <g data-net="bin1">
-                <path class="net" d="M 520 430 L 488 430"></path>
-                <use href="#sym-5v" x="478" y="430"></use>
+                <path class="net" d="M 632 410 L 662 410"></path>
+                <use href="#sym-5v" x="672" y="410"></use>
               </g>
-              <!-- BIN2 strap LOW -->
+              <!-- BIN2 strap LOW (pin 11) -->
               <g data-net="bin2">
-                <path class="net" d="M 520 460 L 480 460 L 480 466"></path>
-                <use href="#sym-gnd" x="480" y="468"></use>
+                <path class="net" d="M 632 450 L 665 450"></path>
+                <use href="#sym-gnd" x="667" y="452"></use>
               </g>
-              <!-- D9 -> PWMA -->
-              <path class="net" data-net="pwma" d="M 270 470 L 440 470 L 440 500 L 520 500"></path>
-              <!-- D10 -> PWMB -->
-              <path class="net" data-net="pwmb" d="M 270 505 L 470 505 L 470 530 L 520 530"></path>
-              <!-- AO1 / AO2 -> NIR -->
-              <path class="net" data-net="ao1" d="M 700 400 L 850 400"></path>
-              <path class="net" data-net="ao2" d="M 700 435 L 850 435"></path>
-              <!-- BO1 / BO2 -> heater -->
-              <path class="net" data-net="bo1" d="M 700 490 L 850 490"></path>
-              <path class="net" data-net="bo2" d="M 700 525 L 790 525 L 790 545 L 850 545"></path>
+              <!-- D9 -> PWMA (pin 16) -->
+              <path class="net" data-net="pwma" d="M 632 250 L 700 250 L 700 470 L 880 470"></path>
+              <!-- D10 -> PWMB (pin 10) -->
+              <path class="net" data-net="pwmb" d="M 632 490 L 720 490 L 720 505 L 880 505"></path>
+              <!-- A01 / A02 -> NIR -->
+              <path class="net" data-net="ao1" d="M 438 370 L 280 370"></path>
+              <path class="net" data-net="ao2" d="M 438 410 L 280 410"></path>
+              <!-- B01 / B02 -> heater -->
+              <path class="net" data-net="bo1" d="M 438 450 L 385 450 L 385 480 L 280 480"></path>
+              <path class="net" data-net="bo2" d="M 438 490 L 400 490 L 400 520 L 280 520"></path>
               <!-- DS18B20 VCC -->
               <g data-net="ds-vcc">
-                <path class="net" d="M 360 130 L 360 200"></path>
-                <use href="#sym-5v" x="360" y="212"></use>
+                <path class="net" d="M 710 130 L 710 165"></path>
+                <use href="#sym-5v" x="710" y="177"></use>
               </g>
               <!-- DS18B20 GND -->
               <g data-net="ds-gnd">
-                <path class="net" d="M 500 130 L 500 156"></path>
-                <use href="#sym-gnd" x="500" y="158"></use>
+                <path class="net" d="M 850 130 L 850 158"></path>
+                <use href="#sym-gnd" x="850" y="160"></use>
               </g>
               <!-- DS18B20 DATA -> D2 -->
-              <path class="net" data-net="ds-data" d="M 440 130 L 440 320 L 270 320"></path>
+              <path class="net" data-net="ds-data" d="M 790 130 L 790 320 L 880 320"></path>
               <!-- 4.7k pull-up -->
               <g data-net="ds-pullup">
-                <path class="net" d="M 440 180 L 425 180"></path>
-                <rect class="sym-stroke" x="393" y="173" width="32" height="14" fill="none" stroke-width="1.6"></rect>
-                <path class="net" d="M 393 180 L 360 180"></path>
-                <text x="409" y="167" text-anchor="middle">4.7kΩ</text>
+                <path class="net" d="M 790 232 L 775 232"></path>
+                <rect class="sym-stroke" x="743" y="225" width="32" height="14" fill="none" stroke-width="1.6"></rect>
+                <text x="759" y="253" text-anchor="middle">4.7kΩ</text>
+                <path class="net" d="M 743 232 L 731 232"></path>
+                <use href="#sym-5v" x="719" y="232"></use>
               </g>
-              <circle class="junction" cx="440" cy="180" r="3.5"></circle>
-              <circle class="junction" cx="360" cy="180" r="3.5"></circle>
+              <circle class="junction" cx="790" cy="232" r="3.5"></circle>
 
-              <!-- Indicator LEDs -->
+              <!-- Indicator LEDs (below the Arduino) -->
+              <g data-net="led-error">
+                <path class="net" d="M 880 545 L 820 545 L 820 662 L 860 662 L 860 664"></path>
+                <rect class="sym-stroke" x="851" y="664" width="18" height="24" fill="none" stroke-width="1.6"></rect>
+                <path class="net" d="M 860 688 L 860 695"></path>
+                <circle class="sym-stroke" cx="860" cy="704" r="9" fill="none" stroke-width="1.6"></circle>
+                <path class="net" d="M 860 713 L 860 720"></path>
+                <use href="#sym-gnd" x="860" y="722"></use>
+                <text x="860" y="758" text-anchor="middle">Err D13</text>
+              </g>
               <g data-net="led-heating">
-                <path class="net" d="M 270 360 L 300 360 L 300 620 L 340 620 L 340 640"></path>
-                <rect class="sym-stroke" x="331" y="640" width="18" height="24" fill="none" stroke-width="1.6"></rect>
-                <path class="net" d="M 340 664 L 340 672"></path>
-                <circle class="sym-stroke" cx="340" cy="682" r="9" fill="none" stroke-width="1.6"></circle>
-                <path class="net" d="M 340 691 L 340 700"></path>
-                <use href="#sym-gnd" x="340" y="702"></use>
-                <text x="340" y="738" text-anchor="middle">Heat D6</text>
+                <path class="net" d="M 880 360 L 856 360 L 856 650 L 920 650 L 920 664"></path>
+                <rect class="sym-stroke" x="911" y="664" width="18" height="24" fill="none" stroke-width="1.6"></rect>
+                <path class="net" d="M 920 688 L 920 695"></path>
+                <circle class="sym-stroke" cx="920" cy="704" r="9" fill="none" stroke-width="1.6"></circle>
+                <path class="net" d="M 920 713 L 920 720"></path>
+                <use href="#sym-gnd" x="920" y="722"></use>
+                <text x="920" y="758" text-anchor="middle">Heat D6</text>
               </g>
               <g data-net="led-10hz">
-                <path class="net" d="M 270 395 L 312 395 L 312 605 L 420 605 L 420 640"></path>
-                <rect class="sym-stroke" x="411" y="640" width="18" height="24" fill="none" stroke-width="1.6"></rect>
-                <path class="net" d="M 420 664 L 420 672"></path>
-                <circle class="sym-stroke" cx="420" cy="682" r="9" fill="none" stroke-width="1.6"></circle>
-                <path class="net" d="M 420 691 L 420 700"></path>
-                <use href="#sym-gnd" x="420" y="702"></use>
-                <text x="420" y="738" text-anchor="middle">10Hz D7</text>
+                <path class="net" d="M 880 395 L 844 395 L 844 656 L 980 656 L 980 664"></path>
+                <rect class="sym-stroke" x="971" y="664" width="18" height="24" fill="none" stroke-width="1.6"></rect>
+                <path class="net" d="M 980 688 L 980 695"></path>
+                <circle class="sym-stroke" cx="980" cy="704" r="9" fill="none" stroke-width="1.6"></circle>
+                <path class="net" d="M 980 713 L 980 720"></path>
+                <use href="#sym-gnd" x="980" y="722"></use>
+                <text x="980" y="758" text-anchor="middle">10Hz D7</text>
               </g>
               <g data-net="led-40hz">
-                <path class="net" d="M 270 430 L 324 430 L 324 590 L 500 590 L 500 640"></path>
-                <rect class="sym-stroke" x="491" y="640" width="18" height="24" fill="none" stroke-width="1.6"></rect>
-                <path class="net" d="M 500 664 L 500 672"></path>
-                <circle class="sym-stroke" cx="500" cy="682" r="9" fill="none" stroke-width="1.6"></circle>
-                <path class="net" d="M 500 691 L 500 700"></path>
-                <use href="#sym-gnd" x="500" y="702"></use>
-                <text x="500" y="738" text-anchor="middle">40Hz D8</text>
+                <path class="net" d="M 880 430 L 832 430 L 832 644 L 1040 644 L 1040 664"></path>
+                <rect class="sym-stroke" x="1031" y="664" width="18" height="24" fill="none" stroke-width="1.6"></rect>
+                <path class="net" d="M 1040 688 L 1040 695"></path>
+                <circle class="sym-stroke" cx="1040" cy="704" r="9" fill="none" stroke-width="1.6"></circle>
+                <path class="net" d="M 1040 713 L 1040 720"></path>
+                <use href="#sym-gnd" x="1040" y="722"></use>
+                <text x="1040" y="758" text-anchor="middle">40Hz D8</text>
               </g>
-              <g data-net="led-error">
-                <path class="net" d="M 270 545 L 336 545 L 336 575 L 580 575 L 580 640"></path>
-                <rect class="sym-stroke" x="571" y="640" width="18" height="24" fill="none" stroke-width="1.6"></rect>
-                <path class="net" d="M 580 664 L 580 672"></path>
-                <circle class="sym-stroke" cx="580" cy="682" r="9" fill="none" stroke-width="1.6"></circle>
-                <path class="net" d="M 580 691 L 580 700"></path>
-                <use href="#sym-gnd" x="580" y="702"></use>
-                <text x="580" y="738" text-anchor="middle">Err D13</text>
-              </g>
-              <text class="note-text" x="340" y="762">220 Ω + LED, cathode to GND (Err D13 may use on-board L LED)</text>
+              <text class="note-text" x="820" y="784">220 Ω + LED, cathode to GND (Err D13 may use on-board L LED)</text>
             </g>
           </svg>
         </div>
