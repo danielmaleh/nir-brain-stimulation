@@ -81,25 +81,51 @@ document.addEventListener('DOMContentLoaded', () => {
     logToConsole('Serial device physically disconnected.', 'error');
     handleDisconnectCleanup();
   });
+
+  // If this origin already has permission for a port (e.g. the tab was discarded
+  // by Chrome Memory Saver and reloaded), reconnect without prompting.
+  tryAutoReconnect();
 });
 
 // --- Web Serial Connection Logic ---
+async function openPort(selected) {
+  logToConsole('Opening port connection (115200 baud)...', 'system');
+  port = selected;
+  await port.open({ baudRate: 115200 });
+
+  updateConnectionUI(true);
+  keepReading = true;
+
+  readLoop();
+}
+
 async function connectSerial() {
   try {
     logToConsole('Requesting port from user...', 'system');
-    port = await navigator.serial.requestPort();
-    
-    logToConsole('Opening port connection (115200 baud)...', 'system');
-    await port.open({ baudRate: 115200 });
-    
-    updateConnectionUI(true);
-    keepReading = true;
-    
-    readLoop();
+    const selected = await navigator.serial.requestPort();
+    await openPort(selected);
     logToConsole('Connected to Diagnostic Port. Diagnostics ready.', 'success');
   } catch (error) {
     console.error('Serial connection failed:', error);
     logToConsole(`Connection failed: ${error.message}`, 'error');
+    handleDisconnectCleanup();
+  }
+}
+
+async function tryAutoReconnect() {
+  if (!('serial' in navigator)) return;
+  const ports = await navigator.serial.getPorts();
+  if (ports.length === 0) return;
+
+  // Prefer a genuine Arduino (USB vendor 0x2341) if several ports were authorized.
+  const target = ports.find(p => p.getInfo().usbVendorId === 0x2341) || ports[0];
+  try {
+    logToConsole('Previously authorized port found — reconnecting automatically...', 'system');
+    await openPort(target);
+    logToConsole('Auto-reconnected. Note: opening the port resets the Arduino.', 'success');
+  } catch (error) {
+    // Most likely another tab is holding the port — leave manual Connect available.
+    logToConsole(`Auto-reconnect skipped: ${error.message}`, 'system');
     handleDisconnectCleanup();
   }
 }
