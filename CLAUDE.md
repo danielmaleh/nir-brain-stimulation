@@ -49,13 +49,26 @@ The goal is to build a custom Arduino-controlled head-mounted device that delive
 - The Arduino must log every delivered pulse and temperature reading for data integrity
 - Pulse frequency must be accurate to within ±0.5 Hz at both 10 Hz and 40 Hz
 
-## Software Architecture (To Be Built)
+## Software Architecture
 
 ```
+APP/               # HTML/CSS/JS web application for experiment UI & data collection
+  SKILLS/          # Custom skill guidelines for extending cognitive tasks
+    frontend-design/ # Rules for high-precision timing, audio and style design
+    skill-creator/ # Rules for task registration and data safety
+  index.html       # Web page for researcher dashboard and participant focus screen
+  index.css        # Custom styles for the dark-mode dashboard and diagnostics
+  app.js           # JavaScript logic (precise timing, Web Audio API tone generator)
+  arduino.html     # Web Serial hardware dashboard for Arduino telemetry & control
+  arduino.js       # Serial port interface, charts, parsing, & visual indicators
+  io_test.html     # Web Serial hardware I/O diagnostic test utility
+  io_test.js       # Script to toggle pins, read buttons, and stream feedback in real-time
+
 firmware/          # Arduino sketches
   main/            # Main experiment controller
   calibration/     # LED power and frequency calibration tools
   safety_test/     # Standalone safety/temperature cutoff test
+  io_test/         # Standalone hardware I/O diagnostic test sketch
 
 analysis/          # Python data analysis
   eeg/             # EEG processing scripts
@@ -70,6 +83,25 @@ data/
 
 docs/              # Study protocol, ethics docs, references
 ```
+
+## Experiment UI Application (APP/)
+
+The `APP/` directory houses the client-side web application used by researchers to orchestrate the reaction-time test and log measurements with high precision.
+
+### Key Specifications:
+- **Conditions**: 4 randomized runs per session covering all possibilities exactly once:
+  1. `Heating Control` (40 seconds)
+  2. `10 Hz NIR` (40 seconds)
+  3. `40 Hz NIR` (40 seconds)
+  4. `Wrist EMG` (20 seconds, runs silently with no spacebar clicks)
+- **Rest Interval**: Configurable intermediate rest delay between runs (defaults to 180 seconds / 3 minutes).
+- **Stimulus Protocol**: Non-alarming, programmatically generated 600 Hz sine wave tone (via Web Audio API) with a smooth envelope (10ms attack, 150ms decay) to prevent audio clicks/pops.
+- **Timer Jitter**: Stimulus triggers exactly 5.0 seconds base + random [0.0, 2.0] seconds jitter after the last recorded keypress (or the last missed-response window — see below).
+- **High-Rate Keypress Capture**: Pressing the `Space bar` is intercepted in the capture phase of the browser window using `performance.now()` (microsecond precision, immune to system clock shifts) and filtered against keyboard repeat events.
+- **Response Window / Omissions**: Each tone opens a 2.0-second response window. If no keypress arrives, the tone is logged as a `NO_RESPONSE` omission (counted in `missedCount`, shown live in the stats strip and in the session summary) and the run continues — the next stimulus is scheduled 5s + jitter from the window close. This keeps a run from stalling when a participant fails to respond.
+- **Anticipation Reset**: Premature keypresses (before the tone is played) register as a False Alarm and reset the timer, scheduling the next stimulus 5s + jitter from that premature press.
+- **Data Persistence**: Trial logs are updated in real-time in `localStorage` for safety and are immediately exportable to a formatted `.csv` file.
+
 
 ## Coding Conventions
 

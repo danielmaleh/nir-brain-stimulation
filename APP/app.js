@@ -72,6 +72,7 @@ const elStatsCondition = document.getElementById('stats-condition');
 const elStatsCompleted = document.getElementById('stats-completed');
 const elStatsAvgRt = document.getElementById('stats-avg-rt');
 const elStatsErrors = document.getElementById('stats-errors');
+const elStatsMisses = document.getElementById('stats-misses');
 const elStatsTimeLeft = document.getElementById('stats-time-left');
 
 const elBtnStart = document.getElementById('btn-start');
@@ -889,6 +890,7 @@ function updateStats() {
   // Update spacebar presses captured (starts at 0 and increments with each spacebar click)
   elStatsCompleted.textContent = reactionTimes.length;
   elStatsErrors.textContent = falseAlarmsCount;
+  if (elStatsMisses) elStatsMisses.textContent = missedCount;
 
   if (reactionTimes.length > 0) {
     const sum = reactionTimes.reduce((a, b) => a + b, 0);

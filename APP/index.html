@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NIR tPBM Reaction Time Task</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="index.css">
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- Researcher Dashboard (Sidebar Panel) -->
+    <aside class="dashboard-sidebar">
+      <div class="sidebar-header">
+        <div class="logo-area">
+          <span class="logo-pulse"></span>
+          <h2>tPBM Controller</h2>
+        </div>
+        <p class="subtitle">MIT Media Lab - Fluid interfaces group</p>
+        <nav class="nav-links">
+          <a href="index.html" class="nav-link active">Experiment Task</a>
+          <a href="arduino.html" class="nav-link">Hardware Dashboard</a>
+          <a href="io_test.html" class="nav-link">I/O Diagnostics</a>
+        </nav>
+      </div>
+
+      <!-- Config Section -->
+      <section class="panel-section">
+        <h3><span class="section-num">01</span> Configuration</h3>
+        
+        <div class="input-group">
+          <label for="participant-id">Participant ID</label>
+          <input type="text" id="participant-id" placeholder="e.g., P01" value="P01">
+        </div>
+
+        <div class="grid-2">
+          <div class="input-group">
+            <label for="session-run">Session ID</label>
+            <input type="text" id="session-run" placeholder="e.g., S01" value="S01">
+          </div>
+          <div class="input-group">
+            <label for="pause-duration">Pause (sec)</label>
+            <input type="text" id="pause-duration" placeholder="180" value="180">
+          </div>
+        </div>
+        <div class="input-group" style="margin-top: 0.5rem;">
+          <label>Session Sequence (Randomized)</label>
+          <div class="sequence-display" id="sequence-display">Auto-generated at start</div>
+        </div>
+      </section>
+
+      <!-- Real-Time Metrics -->
+      <section class="panel-section">
+        <h3><span class="section-num">02</span> Real-time Statistics</h3>
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <span class="metric-label">Session Run</span>
+            <span class="metric-value" id="stats-run-idx">0 / 4</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Condition</span>
+            <span class="metric-value highlight" id="stats-condition" style="font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">--</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Completed Trials</span>
+            <span class="metric-value" id="stats-completed">0</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Avg Latency</span>
+            <span class="metric-value highlight" id="stats-avg-rt">-- ms</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">False Alarms</span>
+            <span class="metric-value warn" id="stats-errors">0</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Misses</span>
+            <span class="metric-value warn" id="stats-misses">0</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Remaining Time</span>
+            <span class="metric-value" id="stats-time-left">40.0s</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Action Panel -->
+      <section class="panel-section actions-panel">
+        <button id="btn-start" class="btn btn-primary">Start Session (4 Runs)</button>
+        <button id="btn-abort" class="btn btn-danger" disabled>Abort Session</button>
+        <div class="audio-test-row">
+          <button id="btn-test-sound" class="btn btn-secondary">Test Tonal Stimulus</button>
+          <div class="vol-slider">
+            <label for="sound-vol">Vol</label>
+            <input type="range" id="sound-vol" min="0" max="100" value="25">
+          </div>
+        </div>
+      </section>
+
+      <!-- Console Logger -->
+      <section class="panel-section console-section">
+        <div class="console-header">
+          <h3>Telemetry Console</h3>
+          <button id="btn-clear-console">Clear</button>
+        </div>
+        <div class="console-terminal" id="console-output">
+          <div class="log-line system">[SYSTEM] Ready. Press spacebar to calibrate sound.</div>
+        </div>
+      </section>
+
+      <!-- Saved Runs History -->
+      <section class="panel-section history-section">
+        <h3>Session Data Log</h3>
+        <div class="history-list" id="runs-history">
+          <p class="empty-history">No runs logged yet in this session.</p>
+        </div>
+        <button id="btn-clear-history" class="btn btn-danger-text">Clear History</button>
+      </section>
+    </aside>
+
+    <!-- Participant Area (Main Interface) -->
+    <main class="participant-view" id="participant-area">
+      <!-- Blinding Indicator Shield (minimalist, low luminosity) -->
+      <div class="blinding-dot" id="blinding-focus-indicator"></div>
+
+      <!-- State Message Box -->
+      <div class="instruction-box" id="info-overlay">
+        <h1 id="overlay-title">Visual & Auditory Calibration</h1>
+        <p id="overlay-instruction">Please ensure the participant is fitted with the EEG cap and NIR headgear.</p>
+        <div class="task-info">
+          <div class="info-item">
+            <span class="info-key">Task Duration:</span>
+            <span class="info-val">40 Seconds</span>
+          </div>
+          <div class="info-item">
+            <span class="info-key">Stimulus Delay:</span>
+            <span class="info-val">5s base + [0, 2s] random jitter</span>
+          </div>
+          <div class="info-item">
+            <span class="info-key">Response Key:</span>
+            <span class="info-val kbd">SPACE BAR</span>
+          </div>
+        </div>
+        <p class="closing-note">Participants should close their eyes during the actual trial run.</p>
+      </div>
+
+      <!-- Live Visualization (Plots reaction times in real-time) -->
+      <div class="live-chart-container" id="chart-overlay">
+        <svg class="reaction-chart" id="rt-chart" viewBox="0 0 500 150">
+          <!-- Guide lines -->
+          <line x1="0" y1="20" x2="500" y2="20" class="chart-gridline" />
+          <line x1="0" y1="75" x2="500" y2="75" class="chart-gridline" />
+          <line x1="0" y1="130" x2="500" y2="130" class="chart-gridline" />
+          <text x="5" y="15" class="chart-gridlabel">500 ms</text>
+          <text x="5" y="70" class="chart-gridlabel">250 ms</text>
+          <text x="5" y="125" class="chart-gridlabel">0 ms</text>
+          
+          <!-- Plotted Path -->
+          <path d="" class="chart-path" id="chart-path-line" />
+          
+          <!-- Data Points -->
+          <g id="chart-datapoints"></g>
+        </svg>
+      </div>
+
+      <!-- Visual Stimulus Flash (Dimmed high-contrast trigger for development, hidden during trial) -->
+      <div class="stimulus-flash" id="stim-flash"></div>
+    </main>
+
+  </div>
+
+  <script src="app.js?v=6"></script>
+</body>
+</html>
