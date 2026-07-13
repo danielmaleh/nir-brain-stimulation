@@ -127,10 +127,21 @@ document.addEventListener('DOMContentLoaded', () => {
   // Render initial flatline canvas
   drawSparkline();
 
+  // Connect to the LSL marker bridge so hardware events (NIR on/off, heater,
+  // safety trips) get time-stamped into the EEG/EMG recording.
+  if (window.LSLMarkers) LSLMarkers.connect({ logger: (m) => logToConsole('[LSL] ' + m, 'system') });
+
   // If this origin already has permission for a port (e.g. the tab was discarded
   // by Chrome Memory Saver and reloaded), reconnect without prompting.
   tryAutoReconnect();
 });
+
+/**
+ * @brief Sends an LSL marker via the bridge (no-op if the bridge script/connection is absent).
+ */
+function sendMarker(marker) {
+  if (window.LSLMarkers) window.LSLMarkers.send(marker);
+}
 
 // --- Web Serial Connection Logic ---
 async function openPort(selected) {
@@ -370,6 +381,7 @@ function handleTelemetryEvent(eventType, val1, val2) {
     case 'HEATER': {
       const heaterOn = val1 === '1';
       updateHeaterDisplay(heaterOn);
+      sendMarker(heaterOn ? 'HEATER_ON' : 'HEATER_OFF');
       break;
     }
     
@@ -391,6 +403,7 @@ function handleTelemetryEvent(eventType, val1, val2) {
     
     case 'SAFETY_TRIP': {
       triggerSafetyShutdownDisplay(val1 || 'Temperature safety threshold exceeded.');
+      sendMarker('SAFETY_TRIP');
       break;
     }
 
@@ -399,15 +412,19 @@ function handleTelemetryEvent(eventType, val1, val2) {
       if (!isNaN(condIdx)) {
         updateArduinoConditionDisplay(condIdx);
       }
+      const codes = ['Heating', '10Hz', '40Hz'];
+      sendMarker('STIM_ON;cond=' + (codes[condIdx] || 'unknown'));
       logToConsole('Stimulation started.', 'success');
       break;
     }
 
     case 'STIM_END':
+      sendMarker('STIM_OFF');
       logToConsole('Stimulation finished successfully.', 'success');
       break;
 
     case 'STIM_STOP':
+      sendMarker('STIM_OFF');
       logToConsole(`Stimulation aborted: ${val1}`, 'warning');
       break;
   }

@@ -96,8 +96,30 @@ setupSvgGradient();
 // --- Event Listeners ---
 window.addEventListener('load', () => {
   loadRunsHistory();
+  // Connect to the LSL marker bridge (best-effort; the task runs fine without it).
+  if (window.LSLMarkers) LSLMarkers.connect({ logger: (m) => logToConsole('LSL', m) });
   logToConsole('SYSTEM', 'Ready. Enter details and click Start Session.');
 });
+
+/**
+ * @brief Maps a full condition name to a compact LSL marker code.
+ */
+function condCode(name) {
+  switch (name) {
+    case 'Heating Control': return 'Heating';
+    case '10 Hz NIR': return '10Hz';
+    case '40 Hz NIR': return '40Hz';
+    case 'Wrist EMG': return 'EMG';
+    default: return 'unknown';
+  }
+}
+
+/**
+ * @brief Sends an LSL marker via the bridge (no-op if the bridge script/connection is absent).
+ */
+function sendMarker(marker) {
+  if (window.LSLMarkers) window.LSLMarkers.send(marker);
+}
 
 elBtnStart.addEventListener('click', startTrial);
 elBtnAbort.addEventListener('click', () => abortTrial('MANUAL_ABORT'));
@@ -156,6 +178,7 @@ function handleKeyPress(e) {
     clearTimeout(responseTimer); // press arrived in time -> cancel the pending miss
 
     const latencyMs = pressTime - stimulusPerfTime;
+    sendMarker('RESPONSE;rt=' + latencyMs.toFixed(1));
     reactionTimes.push(latencyMs);
     
     currentTrialData.logs.push({
@@ -176,6 +199,7 @@ function handleKeyPress(e) {
   } else {
     // Premature press (false alarm / anticipation)
     falseAlarmsCount++;
+    sendMarker('PREMATURE');
     
     currentTrialData.logs.push({
       timeSec: timeOffsetSec.toFixed(3),
@@ -393,6 +417,7 @@ function startRun() {
     eventType: 'RUN_START',
     latencyMs: null
   });
+  sendMarker('RUN_START;cond=' + condCode(currentCondition));
 
   updateStats();
 
@@ -451,6 +476,10 @@ function triggerStimulus() {
   stimulusPerfTime = audioCtx ? audioTimeToPerf(audibleOnset) : performance.now();
   awaitingResponse = true;
 
+  // Emit the LSL 'STIM' marker at the audible onset so it lands with the tone in the EEG.
+  const stimMarkerDelay = Math.max(0, stimulusPerfTime - performance.now());
+  setTimeout(() => sendMarker('STIM'), stimMarkerDelay);
+
   // Open the response window: if no keypress arrives within RESPONSE_WINDOW_MS the
   // tone is tagged NO_RESPONSE and the run advances to the next stimulus.
   clearTimeout(responseTimer);
@@ -479,6 +508,7 @@ function handleMissedResponse() {
   const timeOffsetSec = (missPerfTime - trialStartPerfTime) / 1000;
 
   missedCount++;
+  sendMarker('NO_RESPONSE');
 
   currentTrialData.logs.push({
     timeSec: timeOffsetSec.toFixed(3),
@@ -517,6 +547,7 @@ function endRun() {
     eventType: 'RUN_END',
     latencyMs: null
   });
+  sendMarker('RUN_END;cond=' + condCode(currentCondition));
 
   logToConsole('SYSTEM', `RUN ${currentRunIndex + 1}/4 (${currentCondition}) COMPLETED.`);
 

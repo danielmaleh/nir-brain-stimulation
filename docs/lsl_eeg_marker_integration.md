@@ -104,9 +104,9 @@ already logs, so nothing new has to be invented:
 | `PREMATURE` | space pressed before the tone (false alarm) | behavioural app |
 | `NO_RESPONSE` | no press within the 2 s window (omission) | behavioural app |
 | `RUN_END;cond=10Hz` | a run ends | behavioural app |
-| `NIR_ON;freq=40` | NIR stimulation starts (10/40 Hz) | Arduino dashboard |
-| `NIR_OFF` | NIR stimulation stops | Arduino dashboard |
-| `HEATER_ON` / `HEATER_OFF` | heating control switches | Arduino dashboard |
+| `STIM_ON;cond=40Hz` | stimulation block starts (`Heating`/`10Hz`/`40Hz`) | Arduino dashboard |
+| `STIM_OFF` | stimulation block ends or aborts | Arduino dashboard |
+| `HEATER_ON` / `HEATER_OFF` | heater element switches (heating condition) | Arduino dashboard |
 | `SAFETY_TRIP` | 40 °C safety cutoff latched | Arduino dashboard |
 
 Keep the names short, stable, and documented — your analysis scripts key off
