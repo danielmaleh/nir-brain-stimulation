@@ -250,6 +250,12 @@ function updateConnectionUI(isConnected) {
     btnStopStim.removeAttribute('disabled');
     btnResetSafety.removeAttribute('disabled');
     btnSimTemp.removeAttribute('disabled');
+
+    // Opening the port resets the Uno (Web Serial asserts DTR), so on connect the
+    // board is guaranteed to be in IDLE with the default Heating condition selected.
+    // Show that immediately instead of "UNKNOWN"; live events keep it accurate after.
+    updateArduinoStateDisplay(0);      // STATE_IDLE
+    updateArduinoConditionDisplay(0);  // COND_HEATING (firmware's default selection)
   } else {
     connectionBadge.className = 'arduino-badge disconnected';
     connectionStatusText.textContent = 'DISCONNECTED';
@@ -366,12 +372,14 @@ function handleTelemetryEvent(eventType, val1, val2) {
       if (!isNaN(tempVal)) {
         updateTemperatureDisplay(tempVal);
       }
-      if (!isNaN(condIdx)) {
+      // condIdx is -1 while idle/resting (no active condition). Only update the mode
+      // display during stimulation (>= 0) so it never clobbers the selected mode.
+      if (!isNaN(condIdx) && condIdx >= 0) {
         updateArduinoConditionDisplay(condIdx);
       }
       break;
     }
-    
+
     case 'PULSE': {
       const pulseOn = val1 === '1';
       updatePulseDisplay(pulseOn);
