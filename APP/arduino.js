@@ -317,7 +317,13 @@ async function readLoop() {
           inputBuffer = lines.pop();
           
           for (const line of lines) {
-            parseSerialLine(line.trim());
+            // Guard each line so a rendering/parse error in one message can never
+            // tear down the whole serial read loop (which would freeze telemetry).
+            try {
+              parseSerialLine(line.trim());
+            } catch (parseErr) {
+              console.error('Error handling serial line:', line, parseErr);
+            }
           }
         }
       }
@@ -592,7 +598,7 @@ function drawSparkline() {
   // Style and stroke the path line
   const gradient = canvasCtx.createLinearGradient(0, 0, width, 0);
   gradient.addColorStop(0, 'rgba(139, 92, 246, 0.3)'); // Violet start
-  gradient.addColorStop(1, 'var(--accent-secondary)'); // Cyan end
+  gradient.addColorStop(1, '#06b6d4'); // Cyan end (--accent-secondary literal; canvas can't parse CSS vars)
   canvasCtx.strokeStyle = gradient;
   canvasCtx.lineWidth = 2.5;
   canvasCtx.stroke();
