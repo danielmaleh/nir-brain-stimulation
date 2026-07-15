@@ -98,6 +98,14 @@ DeviceAddress tempDeviceAddress;
 float currentTemp = 0.0;
 bool sensorConnected = false;
 
+// The DS18B20 scratchpad powers up holding +85.00 C. Reading before a conversion
+// has completed returns that value - it is a reset artifact, never a real skin
+// temperature, and must not be fed into the safety comparator (85 >= 40 would
+// falsely latch a trip right after boot / Web Serial connect).
+const float DS18B20_POWERON_C = 85.0;
+const uint8_t MAX_SUSPECT_READS = 3; // consecutive 85 C reads before declaring a sensor fault
+uint8_t suspectReadCount = 0;
+
 // --- Function Declarations ---
 void changeState(SystemState newState);
 void checkSafety();
@@ -184,16 +192,34 @@ void loop() {
 
   // 1. Periodically poll temperature (non-blocking conversion, but the bus read
   //    itself is blocking - pulse timing is unaffected because it is timer-driven).
-  if (sensorConnected && currentState != STATE_SAFETY_TRIP) {
-    if (currentTimeMs - lastTempPollTimeMs >= TEMP_POLL_INTERVAL_MS) {
+  //    Runs in EVERY state, including SAFETY_TRIP, so the operator can watch the
+  //    temperature come back down after a trip; the trip itself stays latched.
+  if (sensorConnected && currentTimeMs - lastTempPollTimeMs >= TEMP_POLL_INTERVAL_MS) {
+    // Only read once the conversion has actually finished. Reading earlier returns
+    // the previous scratchpad contents - on the first poll after reset that is the
+    // +85 C power-on value, which would falsely trip the 40 C cutoff.
+    if (sensors.isConversionComplete()) {
       lastTempPollTimeMs = currentTimeMs;
 
       float newTemp = sensors.getTempC(tempDeviceAddress);
       sensors.requestTemperatures(); // Trigger next conversion asynchronously
 
       if (newTemp == DEVICE_DISCONNECTED_C) {
-        triggerSafetyShutdown("Sensor disconnected during loop.");
+        if (currentState != STATE_SAFETY_TRIP) {
+          triggerSafetyShutdown("Sensor disconnected during loop.");
+        }
+      } else if (newTemp == DS18B20_POWERON_C) {
+        // Reject the power-on artifact. If it persists the sensor is genuinely
+        // faulty (e.g. brownout-resetting mid-session), so fail safe.
+        suspectReadCount++;
+        Serial.print(micros());
+        Serial.print(F(",SENSOR_SUSPECT,"));
+        Serial.println(suspectReadCount);
+        if (suspectReadCount >= MAX_SUSPECT_READS && currentState != STATE_SAFETY_TRIP) {
+          triggerSafetyShutdown("Sensor fault: persistent 85 C power-on value.");
+        }
       } else {
+        suspectReadCount = 0;
         currentTemp = newTemp;
         checkSafety();
       }
@@ -375,6 +401,17 @@ void changeState(SystemState newState) {
     // In REST, IDLE, or TRIP: stop the pulse train and turn off stimulation outputs.
     stopNirPulse();
     digitalWrite(PIN_HEATER, LOW);
+
+    // Flush any pulse edges still queued by the ISR, then explicitly announce both
+    // actuators OFF. Without these events the pins were driven LOW silently, so the
+    // dashboard's NIR/heater indicators stayed latched ON after an abort (and a
+    // buffered PULSE,1 edge could even arrive after the state change).
+    drainPulseLog();
+    unsigned long offUs = micros();
+    Serial.print(offUs);
+    Serial.println(F(",PULSE,0"));
+    Serial.print(offUs);
+    Serial.println(F(",HEATER,0"));
   }
 
   // Refresh physical LED indicators
@@ -385,11 +422,12 @@ void changeState(SystemState newState) {
  * @brief Safety monitor checking skin temperature and taking corrective actions.
  */
 void checkSafety() {
-  if (currentTemp >= MAX_SAFE_TEMP) {
+  // Trip once and stay latched: while already tripped, keep logging temperature
+  // (so the operator can watch it cool down) without re-emitting SAFETY_TRIP.
+  if (currentTemp >= MAX_SAFE_TEMP && currentState != STATE_SAFETY_TRIP) {
     char reasonBuf[64];
     snprintf(reasonBuf, sizeof(reasonBuf), "Over-temp detected: %s C", String(currentTemp, 2).c_str());
     triggerSafetyShutdown(reasonBuf);
-    return;
   }
 
   // Periodic temperature logging (every 1 second)
@@ -456,6 +494,14 @@ void triggerSafetyShutdown(const char* reason) {
 
   digitalWrite(PIN_LED_ERROR, HIGH);
 
+  // Record the actuator-off transitions in the log before announcing the trip.
+  drainPulseLog();
+  unsigned long offUs = micros();
+  Serial.print(offUs);
+  Serial.println(F(",PULSE,0"));
+  Serial.print(offUs);
+  Serial.println(F(",HEATER,0"));
+
   Serial.print(micros());
   Serial.print(F(",SAFETY_TRIP,"));
   Serial.println(reason);
@@ -463,14 +509,43 @@ void triggerSafetyShutdown(const char* reason) {
 
 /**
  * @brief Cycles mode selection (Heating -> 10 Hz -> 40 Hz -> Heating).
+ *        Allowed while IDLE, and also LIVE during stimulation: the running
+ *        actuator is stopped and the new condition starts immediately, keeping
+ *        the original stimulation countdown. Not allowed in REST or after a trip.
  */
 void cycleMode() {
-  if (currentState != STATE_IDLE) return;
+  if (currentState != STATE_IDLE && currentState != STATE_STIMULATING) return;
 
   selectedCondition = (StimCondition)((selectedCondition + 1) % COND_COUNT);
   Serial.print(micros());
   Serial.print(F(",MODE_SELECT,"));
   Serial.println(selectedCondition);
+
+  if (currentState == STATE_STIMULATING) {
+    // Live switch: kill the current actuator cleanly (with explicit OFF events,
+    // same as an abort), then start the newly selected condition.
+    stopNirPulse();
+    digitalWrite(PIN_HEATER, LOW);
+    drainPulseLog();
+    unsigned long offUs = micros();
+    Serial.print(offUs);
+    Serial.println(F(",PULSE,0"));
+    Serial.print(offUs);
+    Serial.println(F(",HEATER,0"));
+
+    if (selectedCondition == COND_10HZ) {
+      startNirPulse(TIMER1_OCR_10HZ);
+    } else if (selectedCondition == COND_40HZ) {
+      startNirPulse(TIMER1_OCR_40HZ);
+    }
+    // COND_HEATING: runHeaterThermostat() takes over from loop().
+
+    // Distinct event so the dashboard + LSL/EEG marker stream can timestamp
+    // exactly when the active condition changed mid-run.
+    Serial.print(micros());
+    Serial.print(F(",COND_SWITCH,"));
+    Serial.println((int)selectedCondition);
+  }
   updateStatusLEDs();
 }
 
@@ -541,10 +616,12 @@ void handleSerialCommands() {
 
           if (checkTemp != DEVICE_DISCONNECTED_C && checkTemp < MAX_SAFE_TEMP) {
             digitalWrite(PIN_LED_ERROR, LOW);
-            currentState = STATE_IDLE;
             currentTemp = checkTemp;
+            suspectReadCount = 0;
             Serial.println(F("# Safety trip successfully reset. Re-entering IDLE state."));
-            updateStatusLEDs();
+            // Use changeState so a STATE_CHANGE event is emitted - without it the
+            // dashboard stayed stuck on "SAFETY SHUTDOWN ACTIVE" after a reset.
+            changeState(STATE_IDLE);
           } else {
 #if TB_STBY_CONTROL
             // Stay tripped: put the driver back into standby.

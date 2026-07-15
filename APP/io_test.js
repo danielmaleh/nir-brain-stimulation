@@ -82,6 +82,9 @@ document.addEventListener('DOMContentLoaded', () => {
     handleDisconnectCleanup();
   });
 
+  // Register how this tab releases the port so another tab can cleanly take over.
+  if (window.SerialLock) SerialLock.setReleaseHandler(disconnectSerial);
+
   // If this origin already has permission for a port (e.g. the tab was discarded
   // by Chrome Memory Saver and reloaded), reconnect without prompting.
   tryAutoReconnect();
@@ -96,11 +99,19 @@ async function openPort(selected) {
   updateConnectionUI(true);
   keepReading = true;
 
+  // Claim the shared port so the Hardware Dashboard tab won't auto-grab it.
+  if (window.SerialLock) SerialLock.claim();
+
   readLoop();
 }
 
 async function connectSerial() {
   try {
+    // If the Hardware Dashboard tab is holding the port, ask it to release first.
+    if (window.SerialLock && await SerialLock.isHeldElsewhere()) {
+      logToConsole('Another tab holds the port — taking it over...', 'system');
+      await SerialLock.requestTakeover();
+    }
     logToConsole('Requesting port from user...', 'system');
     const selected = await navigator.serial.requestPort();
     await openPort(selected);
@@ -114,6 +125,15 @@ async function connectSerial() {
 
 async function tryAutoReconnect() {
   if (!('serial' in navigator)) return;
+
+  // Don't fight the Hardware Dashboard tab: if it already holds the port, yield.
+  // This stops the "disconnect here, auto-reconnects there" ping-pong when a
+  // backgrounded tab is reloaded by Chrome Memory Saver.
+  if (window.SerialLock && await SerialLock.isHeldElsewhere()) {
+    logToConsole('Serial port is in use by another tab — not auto-connecting. Click Connect to take it over.', 'system');
+    return;
+  }
+
   const ports = await navigator.serial.getPorts();
   if (ports.length === 0) return;
 
@@ -161,7 +181,10 @@ function handleDisconnectCleanup() {
   keepReading = false;
   inputBuffer = '';
   streamActive = false;
-  
+
+  // Announce the port is free so other tabs stop treating us as the owner.
+  if (window.SerialLock) SerialLock.release();
+
   updateConnectionUI(false);
   resetAllIndicators();
 }

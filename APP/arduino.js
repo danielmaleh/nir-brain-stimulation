@@ -127,6 +127,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Render initial flatline canvas
   drawSparkline();
 
+  // Register how this tab releases the port so another tab can cleanly take over.
+  if (window.SerialLock) SerialLock.setReleaseHandler(disconnectSerial);
+
   // Connect to the LSL marker bridge so hardware events (NIR on/off, heater,
   // safety trips) get time-stamped into the EEG/EMG recording.
   if (window.LSLMarkers) LSLMarkers.connect({ logger: (m) => logToConsole('[LSL] ' + m, 'system') });
@@ -153,12 +156,20 @@ async function openPort(selected) {
   updateConnectionUI(true);
   keepReading = true;
 
+  // Claim the shared port so the I/O Diagnostics tab won't auto-grab it.
+  if (window.SerialLock) SerialLock.claim();
+
   // Launch reading loop
   readLoop();
 }
 
 async function connectSerial() {
   try {
+    // If the I/O Diagnostics tab is holding the port, ask it to release first.
+    if (window.SerialLock && await SerialLock.isHeldElsewhere()) {
+      logToConsole('Another tab holds the port — taking it over...', 'system');
+      await SerialLock.requestTakeover();
+    }
     logToConsole('Requesting port from user...', 'system');
     const selected = await navigator.serial.requestPort();
     await openPort(selected);
@@ -172,6 +183,15 @@ async function connectSerial() {
 
 async function tryAutoReconnect() {
   if (!('serial' in navigator)) return;
+
+  // Don't fight the I/O Diagnostics tab: if it already holds the port, yield.
+  // This stops the "disconnect here, auto-reconnects there" ping-pong when a
+  // backgrounded tab is reloaded by Chrome Memory Saver.
+  if (window.SerialLock && await SerialLock.isHeldElsewhere()) {
+    logToConsole('Serial port is in use by another tab — not auto-connecting. Click Connect to take it over.', 'system');
+    return;
+  }
+
   const ports = await navigator.serial.getPorts();
   if (ports.length === 0) return;
 
@@ -220,7 +240,10 @@ function handleDisconnectCleanup() {
   writer = null;
   keepReading = false;
   inputBuffer = '';
-  
+
+  // Announce the port is free so other tabs stop treating us as the owner.
+  if (window.SerialLock) SerialLock.release();
+
   updateConnectionUI(false);
   
   // Reset peripheral states
@@ -348,7 +371,7 @@ function parseSerialLine(line) {
   let category = 'system';
   if (line.includes('TEMP_LOG') || line.includes('PULSE') || line.includes('HEATER')) {
     category = 'telemetry';
-  } else if (line.includes('STATE_CHANGE') || line.includes('MODE_SELECT') || line.includes('SAFETY_TRIP') || line.includes('STIM_')) {
+  } else if (line.includes('STATE_CHANGE') || line.includes('MODE_SELECT') || line.includes('COND_SWITCH') || line.includes('SAFETY_TRIP') || line.includes('STIM_')) {
     category = 'control';
   }
   logToConsole(line, category);
@@ -414,10 +437,27 @@ function handleTelemetryEvent(eventType, val1, val2) {
       }
       break;
     }
+
+    case 'COND_SWITCH': {
+      // Condition was switched live while stimulation is running.
+      const condIdx = parseInt(val1);
+      if (!isNaN(condIdx)) {
+        updateArduinoConditionDisplay(condIdx);
+      }
+      const codes = ['Heating', '10Hz', '40Hz'];
+      sendMarker('STIM_COND_SWITCH;cond=' + (codes[condIdx] || 'unknown'));
+      logToConsole(`Condition switched live during stimulation → ${CONDITION_NAMES[condIdx] || 'UNKNOWN'}.`, 'warning');
+      break;
+    }
     
     case 'SAFETY_TRIP': {
       triggerSafetyShutdownDisplay(val1 || 'Temperature safety threshold exceeded.');
       sendMarker('SAFETY_TRIP');
+      break;
+    }
+
+    case 'SENSOR_SUSPECT': {
+      logToConsole(`Rejected suspect DS18B20 reading (+85.0 °C power-on value, occurrence ${val1}). Not a real temperature.`, 'warning');
       break;
     }
 
@@ -488,6 +528,7 @@ function updateTemperatureDisplay(temp) {
     tempDisplayVal.style.color = 'var(--color-danger)';
     if (!safetyStatusBox.classList.contains('tripped')) {
       safetyTitleText.textContent = 'System Status: THERMAL WARNING';
+      safetyTitleText.style.color = 'var(--color-danger)';
       safetyDescText.textContent = 'Skin contact temperature approaching 40°C threshold.';
       safetyStatusBox.style.backgroundColor = 'rgba(239, 68, 68, 0.05)';
       safetyStatusBox.style.borderColor = 'rgba(239, 68, 68, 0.2)';
@@ -496,6 +537,7 @@ function updateTemperatureDisplay(temp) {
     tempDisplayVal.style.color = 'var(--color-warning)';
     if (!safetyStatusBox.classList.contains('tripped')) {
       safetyTitleText.textContent = 'System Status: ELEVATED';
+      safetyTitleText.style.color = 'var(--color-warning)';
       safetyDescText.textContent = 'Active warming is occurring.';
       safetyStatusBox.style.backgroundColor = 'rgba(245, 158, 11, 0.05)';
       safetyStatusBox.style.borderColor = 'rgba(245, 158, 11, 0.2)';
@@ -504,6 +546,7 @@ function updateTemperatureDisplay(temp) {
     tempDisplayVal.style.color = 'var(--text-main)';
     if (!safetyStatusBox.classList.contains('tripped')) {
       safetyTitleText.textContent = 'System Health: SECURE';
+      safetyTitleText.style.color = 'var(--color-success)';
       safetyDescText.textContent = 'All parameters within safety thresholds.';
       safetyStatusBox.style.backgroundColor = 'rgba(16, 185, 129, 0.05)';
       safetyStatusBox.style.borderColor = 'rgba(16, 185, 129, 0.2)';
@@ -558,17 +601,6 @@ function drawSparkline() {
     canvasCtx.stroke();
   }
   
-  // Draw base safety line at 40 degrees
-  const safetyY = getSparklineY(40.0, height);
-  canvasCtx.strokeStyle = 'rgba(239, 68, 68, 0.2)';
-  canvasCtx.lineWidth = 1;
-  canvasCtx.setLineDash([4, 4]);
-  canvasCtx.beginPath();
-  canvasCtx.moveTo(0, safetyY);
-  canvasCtx.lineTo(width, safetyY);
-  canvasCtx.stroke();
-  canvasCtx.setLineDash([]); // Reset
-  
   if (tempHistory.length < 2) {
     // Render flatline
     canvasCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
@@ -579,15 +611,45 @@ function drawSparkline() {
     canvasCtx.stroke();
     return;
   }
-  
+
+  // Auto-scale the vertical axis: fit the currently visible data span with a
+  // small padding, and re-fit on every frame as the 60s window slides.
+  let loTemp = Math.min(...tempHistory);
+  let hiTemp = Math.max(...tempHistory);
+  const pad = Math.max(0.4, (hiTemp - loTemp) * 0.15);
+  loTemp -= pad;
+  hiTemp += pad;
+
+  // Draw the 40 °C safety line only when it falls inside the visible range,
+  // so a cool trace isn't squashed to the bottom of the plot.
+  if (loTemp <= 40.0 && 40.0 <= hiTemp) {
+    const safetyY = getSparklineY(40.0, height, loTemp, hiTemp);
+    canvasCtx.strokeStyle = 'rgba(239, 68, 68, 0.2)';
+    canvasCtx.lineWidth = 1;
+    canvasCtx.setLineDash([4, 4]);
+    canvasCtx.beginPath();
+    canvasCtx.moveTo(0, safetyY);
+    canvasCtx.lineTo(width, safetyY);
+    canvasCtx.stroke();
+    canvasCtx.setLineDash([]); // Reset
+  }
+
+  // Axis bound labels so the auto-scaled range stays readable
+  canvasCtx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+  canvasCtx.font = '10px "JetBrains Mono", monospace';
+  canvasCtx.textBaseline = 'top';
+  canvasCtx.fillText(`${hiTemp.toFixed(1)}°`, 4, 3);
+  canvasCtx.textBaseline = 'bottom';
+  canvasCtx.fillText(`${loTemp.toFixed(1)}°`, 4, height - 3);
+
   // Plot temperature data points
   canvasCtx.beginPath();
   const stepX = width / (MAX_HISTORY_POINTS - 1);
   const startX = width - (tempHistory.length - 1) * stepX;
-  
+
   tempHistory.forEach((temp, idx) => {
     const x = startX + idx * stepX;
-    const y = getSparklineY(temp, height);
+    const y = getSparklineY(temp, height, loTemp, hiTemp);
     if (idx === 0) {
       canvasCtx.moveTo(x, y);
     } else {
@@ -614,10 +676,7 @@ function drawSparkline() {
   canvasCtx.fill();
 }
 
-function getSparklineY(temp, canvasHeight) {
-  // Let visual bounds of sparkline be 25.0 °C at bottom and 41.0 °C at top
-  const minVisualTemp = 25.0;
-  const maxVisualTemp = 41.0;
+function getSparklineY(temp, canvasHeight, minVisualTemp, maxVisualTemp) {
   const clamped = Math.max(minVisualTemp, Math.min(maxVisualTemp, temp));
   const percent = (clamped - minVisualTemp) / (maxVisualTemp - minVisualTemp);
   // Subtract from height to invert canvas 0,0 top-left origin
@@ -662,6 +721,13 @@ function updateArduinoStateDisplay(stateIdx) {
   } else if (stateIdx === 3) { // SAFETY_TRIP
     triggerSafetyShutdownDisplay('Hardware safety cutoff activated.');
   }
+
+  // Defensive sync: outside STIMULATING the firmware forces both actuators off,
+  // so never leave a stale ON indicator (e.g. heater still lit after an abort).
+  if (stateIdx !== 1) {
+    updatePulseDisplay(false);
+    updateHeaterDisplay(false);
+  }
 }
 
 // Condition display changes
@@ -681,6 +747,10 @@ function updateArduinoConditionDisplay(condIdx) {
 // Safety display alerts
 function triggerSafetyShutdownDisplay(reason) {
   safetyStatusBox.className = 'safety-status-box tripped';
+  // Clear inline colors left over from the ELEVATED/THERMAL WARNING styling,
+  // which would otherwise override the .tripped class styles.
+  safetyStatusBox.style.backgroundColor = '';
+  safetyStatusBox.style.borderColor = '';
   safetyIconOk.style.display = 'none';
   safetyIconTripped.style.display = 'block';
   
@@ -698,9 +768,11 @@ function triggerSafetyShutdownDisplay(reason) {
 
 function resetSafetyDisplay() {
   safetyStatusBox.className = 'safety-status-box';
+  safetyStatusBox.style.backgroundColor = '';
+  safetyStatusBox.style.borderColor = '';
   safetyIconOk.style.display = 'block';
   safetyIconTripped.style.display = 'none';
-  
+
   safetyTitleText.textContent = 'System Health: SECURE';
   safetyTitleText.style.color = 'var(--color-success)';
   safetyDescText.textContent = 'All parameters within safety thresholds.';
