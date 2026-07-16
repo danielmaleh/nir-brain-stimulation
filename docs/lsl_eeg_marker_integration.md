@@ -91,26 +91,38 @@ So we insert a tiny **local bridge**: a small Python program (using the
 
 ---
 
-## 4. The marker vocabulary
+## 4. The marker vocabulary and numeric codes
 
-Markers are just agreed-upon strings. These mirror the events the experiment
-already logs, so nothing new has to be invented:
+> **Important — NIC2 only records NUMERIC markers.** Its docs say plainly *"Do
+> not send marker names as objects like 'hand'."* So the browser sends readable
+> strings, and **`lsl_bridge.py` translates each into an integer code** before
+> pushing to the `tPBM-Markers` LSL outlet (an `int32` Markers stream). NIC2
+> stores the integer; you map it back to the event during analysis using the
+> table below. (If your NIC2 is configured for "numeric-string" markers rather
+> than int32, set `MARKER_FORMAT = "string"` at the top of `lsl_bridge.py`.)
 
-| Marker string | When it fires | Source |
-|---|---|---|
-| `RUN_START;cond=10Hz` | a run begins (condition appended) | behavioural app |
-| `STIM` | a tone is played (audible onset) | behavioural app |
-| `RESPONSE;rt=312.4` | space pressed in the window (RT in ms) | behavioural app |
-| `PREMATURE` | space pressed before the tone (false alarm) | behavioural app |
-| `NO_RESPONSE` | no press within the 2 s window (omission) | behavioural app |
-| `RUN_END;cond=10Hz` | a run ends | behavioural app |
-| `STIM_ON;cond=40Hz` | stimulation block starts (`Heating`/`10Hz`/`40Hz`) | Arduino dashboard |
-| `STIM_OFF` | stimulation block ends or aborts | Arduino dashboard |
-| `HEATER_ON` / `HEATER_OFF` | heater element switches (heating condition) | Arduino dashboard |
-| `SAFETY_TRIP` | 40 °C safety cutoff latched | Arduino dashboard |
+The condition suffix (`Heating`/`10Hz`/`40Hz`/`EMG`) is folded into the code as
+an offset, so each condition gets its own number:
 
-Keep the names short, stable, and documented — your analysis scripts key off
-these exact strings.
+| Marker string (browser → bridge) | Code (bridge → NIC2) | When it fires | Source |
+|---|---|---|---|
+| `STIM` | `1` | a tone is played (audible onset) | behavioural app |
+| `RESPONSE;rt=312.4` | `2` | space pressed in the window (RT in ms; RT kept in the CSV, not the code) | behavioural app |
+| `PREMATURE` | `3` | space pressed before the tone (false alarm) | behavioural app |
+| `NO_RESPONSE` | `4` | no press within the 2 s window (omission) | behavioural app |
+| `RUN_START;cond=…` | `10`/`11`/`12`/`13` | a run begins (Heating/10Hz/40Hz/EMG) | behavioural app |
+| `RUN_END;cond=…` | `15`/`16`/`17`/`18` | a run ends (Heating/10Hz/40Hz/EMG) | behavioural app |
+| `STIM_ON;cond=…` | `20`/`21`/`22` | stimulation block starts (Heating/10Hz/40Hz) | Arduino dashboard |
+| `STIM_OFF` | `29` | stimulation block ends or aborts | Arduino dashboard |
+| `HEATER_ON` / `HEATER_OFF` | `30` / `31` | heater element switches (heating condition) | Arduino dashboard |
+| `STIM_COND_SWITCH;cond=…` | `40`/`41`/`42` | condition switched live mid-run (Heating/10Hz/40Hz) | Arduino dashboard |
+| `SAFETY_TRIP` | `99` | 40 °C safety cutoff latched | Arduino dashboard |
+| *(anything unrecognized)* | `0` | logged by the bridge as UNKNOWN | — |
+
+The codebook lives in `lsl_bridge.py` (`SIMPLE_CODES` / `COND_CODES`). Keep the
+codes **stable** — your analysis scripts key off these exact integers. The
+bridge prints the whole codebook at startup and logs each `event -> code` as it
+fires, so you can watch the mapping live.
 
 ---
 
@@ -161,8 +173,8 @@ confirm the markers appear in the NIC2 recording at sensible times (e.g. a
 - **XDF file** (if you used LabRecorder): load with **pyxdf**, then hand the EEG
   stream + marker stream to MNE. The two share LSL timestamps, so alignment is
   automatic.
-- Group epochs by condition using the `RUN_START;cond=…` and `NIR_ON;freq=…`
-  markers to compare 10 Hz vs 40 Hz vs heating.
+- Group epochs by condition using the `RUN_START` codes (10/11/12/13) and the
+  `STIM_ON` codes (20/21/22) to compare 10 Hz vs 40 Hz vs heating.
 
 ---
 
