@@ -91,6 +91,13 @@
       <section class="panel-section actions-panel">
         <button id="btn-start" class="btn btn-primary">Start Session (4 Runs)</button>
         <button id="btn-abort" class="btn btn-danger" disabled>Abort Session</button>
+
+        <!-- NIR device link: the task page drives the Arduino stimulation directly -->
+        <div class="nir-link-row" style="display:flex; align-items:center; gap:0.5rem; margin-top:0.25rem;">
+          <button id="btn-nir-connect" class="btn btn-secondary" style="flex:1;">Connect NIR Device</button>
+          <span id="nir-link-status" title="NIR device connection" style="font-family: var(--font-mono); font-size: 0.7rem; padding: 0.3rem 0.5rem; border-radius: 6px; background: rgba(255,255,255,0.05); color: var(--text-muted); white-space: nowrap;">● OFFLINE</span>
+        </div>
+
         <div class="audio-test-row">
           <button id="btn-test-sound" class="btn btn-secondary">Test Tonal Stimulus</button>
           <div class="vol-slider">
@@ -172,7 +179,9 @@
 
   </div>
 
+  <script src="serial_lock.js?v=1"></script>
   <script src="lsl_markers.js?v=1"></script>
-  <script src="app.js?v=7"></script>
+  <script src="arduino_link.js?v=1"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>

@@ -94,12 +94,43 @@ const elChartDatapoints = document.getElementById('chart-datapoints');
 setupSvgGradient();
 
 // --- Event Listeners ---
+const elNirConnect = document.getElementById('btn-nir-connect');
+const elNirStatus = document.getElementById('nir-link-status');
+
 window.addEventListener('load', () => {
   loadRunsHistory();
   // Connect to the LSL marker bridge (best-effort; the task runs fine without it).
   if (window.LSLMarkers) LSLMarkers.connect({ logger: (m) => logToConsole('LSL', m) });
+
+  // Wire the NIR device link: the task page drives the Arduino stimulation itself.
+  if (window.ArduinoLink) {
+    ArduinoLink.setLogger((m) => logToConsole('NIR', m));
+    ArduinoLink.setOnStatus(updateNirStatus);
+    if (elNirConnect) elNirConnect.addEventListener('click', () => ArduinoLink.connect());
+    // Reconnect silently if this origin already has permission for the port.
+    ArduinoLink.tryAutoReconnect();
+  }
+
   logToConsole('SYSTEM', 'Ready. Enter details and click Start Session.');
 });
+
+/**
+ * @brief Reflects the NIR device connection in the sidebar status chip.
+ */
+function updateNirStatus(connected, tripped) {
+  if (!elNirStatus) return;
+  if (connected && tripped) {
+    elNirStatus.textContent = '● TRIPPED';
+    elNirStatus.style.color = 'var(--color-danger)';
+  } else if (connected) {
+    elNirStatus.textContent = '● CONNECTED';
+    elNirStatus.style.color = 'var(--color-success)';
+  } else {
+    elNirStatus.textContent = '● OFFLINE';
+    elNirStatus.style.color = 'var(--text-muted)';
+  }
+  if (elNirConnect) elNirConnect.textContent = connected ? 'NIR Device Connected' : 'Connect NIR Device';
+}
 
 /**
  * @brief Maps a full condition name to a compact LSL marker code.
@@ -419,6 +450,11 @@ function startRun() {
   });
   sendMarker('RUN_START;cond=' + condCode(currentCondition));
 
+  // Drive the Arduino to deliver this run's stimulation (NIR / heater), or keep
+  // it OFF for Wrist EMG. Fire-and-forget: the run proceeds even if the device
+  // isn't connected (it just logs a warning and no light is delivered).
+  if (window.ArduinoLink) ArduinoLink.runCondition(currentCondition);
+
   updateStats();
 
   // Run dynamic countdown clock
@@ -549,6 +585,10 @@ function endRun() {
   });
   sendMarker('RUN_END;cond=' + condCode(currentCondition));
 
+  // Stop the Arduino stimulation so the NIR/heater follows the task's clock
+  // (and the board sits IDLE through the rest interval).
+  if (window.ArduinoLink) ArduinoLink.stop();
+
   logToConsole('SYSTEM', `RUN ${currentRunIndex + 1}/4 (${currentCondition}) COMPLETED.`);
 
   // Save data for the current run into the session object
@@ -642,6 +682,9 @@ function completeSession() {
   sessionActive = false;
   currentSessionData.endTime = Date.now();
 
+  // Belt-and-suspenders: make sure the board is stopped at session end.
+  if (window.ArduinoLink) ArduinoLink.stop();
+
   logToConsole('SYSTEM', `ALL RUNS COMPLETED. SESSION FINISHED.`);
 
   // Save complete session data to storage
@@ -713,8 +756,11 @@ function abortTrial(reason) {
     });
   }
 
+  // Immediately stop any active NIR/heater stimulation on abort.
+  if (window.ArduinoLink) ArduinoLink.stop();
+
   logToConsole('ERROR', `Session aborted: ${reason}`);
-  
+
   saveSessionToStorage();
   resetControlInterface();
 }
