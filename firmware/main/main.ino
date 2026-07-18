@@ -42,8 +42,15 @@
 
 // --- Configuration & Constants ---
 const float MAX_SAFE_TEMP = 40.0;        // Emergency cutoff temperature (Celsius)
-const float HEATER_TARGET_TEMP = 37.5;   // Target temperature for heating control (Celsius)
-const float HEATER_HYSTERESIS = 0.5;     // Hysteresis window for heating control (Celsius)
+const float HEATER_TARGET_DEFAULT = 37.5; // Default heating-control set point (Celsius)
+const float HEATER_HYSTERESIS = 0.5;      // Hysteresis window for heating control (Celsius)
+
+// Heating-control set point. Mutable so the host can match it to the temperature
+// that the 10/40 Hz NIR reached during calibration (see calibrate_thermal.py).
+// Clamped strictly below the safety cutoff whenever set via the 'H' command.
+float heaterTargetTemp = HEATER_TARGET_DEFAULT;
+const float HEATER_TARGET_MIN = 25.0;
+const float HEATER_TARGET_MAX = MAX_SAFE_TEMP - 1.0; // never within 1 C of the 40 C cutoff
 
 const unsigned long STIMULATION_DURATION_MS = 60000; // 1 minute of stimulation
 const unsigned long REST_DURATION_MS = 180000;       // 3 minutes of rest between conditions
@@ -155,7 +162,8 @@ void setup() {
   Serial.println(F("=================================================="));
   Serial.println(F("NIR Brain Stimulation - Main Experiment Controller"));
   Serial.println(F("=================================================="));
-  Serial.println(F("Serial control: M=mode  G=go  X=stop  S=sim-overtemp  R=reset"));
+  Serial.println(F("Serial control: M=mode  G=go  X=stop  S=sim-overtemp  R=reset  H<temp>=heater target"));
+  Serial.setTimeout(150); // bound parseFloat() when reading the 'H' argument
 
   // Initialize Temperature Sensor
   sensors.begin();
@@ -459,13 +467,13 @@ void updateActuators() {
  * @brief Controls the heating ring using a standard On-Off hysteresis loop.
  */
 void runHeaterThermostat() {
-  if (currentTemp < (HEATER_TARGET_TEMP - HEATER_HYSTERESIS)) {
+  if (currentTemp < (heaterTargetTemp - HEATER_HYSTERESIS)) {
     if (digitalRead(PIN_HEATER) == LOW) {
       digitalWrite(PIN_HEATER, HIGH);
       Serial.print(micros());
       Serial.println(F(",HEATER,1"));
     }
-  } else if (currentTemp > HEATER_TARGET_TEMP) {
+  } else if (currentTemp > heaterTargetTemp) {
     if (digitalRead(PIN_HEATER) == HIGH) {
       digitalWrite(PIN_HEATER, LOW);
       Serial.print(micros());
@@ -602,6 +610,21 @@ void handleSerialCommands() {
           checkSafety();
         }
         break;
+
+      case 'H':
+      case 'h': { // Set heating-control target temperature, e.g. "H38.25\n"
+        // Read the numeric argument that follows the command letter. Clamp it
+        // strictly below the 40 C safety cutoff so a bad value can never command
+        // an unsafe target; the latching cutoff remains the ultimate guard.
+        float requested = Serial.parseFloat();
+        if (requested < HEATER_TARGET_MIN) requested = HEATER_TARGET_MIN;
+        if (requested > HEATER_TARGET_MAX) requested = HEATER_TARGET_MAX;
+        heaterTargetTemp = requested;
+        Serial.print(micros());
+        Serial.print(F(",HEATER_TARGET,"));
+        Serial.println(heaterTargetTemp, 2);
+        break;
+      }
 
       case 'R':
       case 'r': // Reset safety trip

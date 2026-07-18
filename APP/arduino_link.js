@@ -33,7 +33,31 @@ window.ArduinoLink = (function () {
   const COND_INDEX = { 'Heating Control': 0, '10 Hz NIR': 1, '40 Hz NIR': 2 };
   const COND_CODE = ['Heating', '10Hz', '40Hz']; // for STIM_ON;cond= markers
 
+  // Heating-control target: matched to the NIR thermal plateau by the calibration
+  // tool (calibration/calibrate_thermal.py -> APP/thermal_profile.json). Null until
+  // loaded; if uncalibrated the firmware keeps its built-in 37.5 C default.
+  let heatingTargetC = null;
+  let profileCalibrated = false;
+
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // Load the thermal calibration profile (best-effort; served alongside the app).
+  async function loadThermalProfile() {
+    try {
+      const resp = await fetch('thermal_profile.json', { cache: 'no-store' });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const p = await resp.json();
+      profileCalibrated = !!p.calibrated;
+      if (typeof p.heating_target_c === 'number') heatingTargetC = p.heating_target_c;
+      if (profileCalibrated) {
+        logFn('Thermal calibration loaded: heating-control target = ' + heatingTargetC.toFixed(2) + ' °C (NIR-matched).');
+      } else {
+        logFn('Thermal profile is NOT calibrated — heating control will use the firmware default (37.5 °C). Run calibrate_thermal.py.');
+      }
+    } catch (e) {
+      logFn('No thermal profile loaded (' + e.message + ') — heating control uses the firmware default.');
+    }
+  }
 
   function setLogger(fn) { if (typeof fn === 'function') logFn = fn; }
   function setOnStatus(fn) { statusFn = fn; }
@@ -51,6 +75,7 @@ window.ArduinoLink = (function () {
     tripped = false;
     if (window.SerialLock) SerialLock.claim();
     emitStatus();
+    loadThermalProfile();
     readLoop();
   }
 
@@ -231,6 +256,13 @@ window.ArduinoLink = (function () {
     if (selectedCond !== target) {
       logFn('⚠ Could not select "' + condName + '" on the device (still on ' + selectedCond + ').');
       return false;
+    }
+    // For the heating-control condition, set the heater set point to the
+    // NIR-matched temperature from calibration before starting the thermostat.
+    if (target === 0 && profileCalibrated && typeof heatingTargetC === 'number') {
+      await send('H' + heatingTargetC.toFixed(2) + '\n');
+      await sleep(50);
+      logFn('Heating-control target set to ' + heatingTargetC.toFixed(2) + ' °C (NIR-matched).');
     }
     await send('g');
     logFn('NIR device: started "' + condName + '".');

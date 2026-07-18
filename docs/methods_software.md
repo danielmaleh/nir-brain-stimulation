@@ -82,9 +82,17 @@ immediately de-energised all actuators if the measured temperature reached
 prevent spurious trips; a missing or disconnected sensor also forced the device
 into the safe (stimulation-disabled) state. In the heating-control condition the
 warming element was regulated by an on–off thermostat about a 37.5 °C set point
-with 0.5 °C hysteresis. Consistent with the blinding design, the invisible
-850 nm emission carried no accompanying visible indicator, and all condition-
-indicator lights were extinguished whenever stimulation was active. The firmware
+with 0.5 °C hysteresis. To equate the thermal
+percept between conditions, the heating-control set point was not fixed but was
+matched to the temperature the NIR stimulation itself produced: in a separate
+calibration procedure the 10 Hz and 40 Hz conditions were each run for the
+experimental run duration on a fixed contact set-up while the contact
+temperature was recorded, and the mean plateau temperature (averaged across the
+two frequencies, which were near-identical at 50 % duty cycle) was stored and
+used as the heating-control target in all sessions. Consistent with the blinding
+design, the invisible 850 nm emission carried no accompanying visible indicator,
+and all condition-indicator lights were extinguished whenever stimulation was
+active. The firmware
 was driven over a USB serial interface and emitted a time-stamped log of all
 state transitions, pulses, temperature readings, heater cycles, and safety
 events.

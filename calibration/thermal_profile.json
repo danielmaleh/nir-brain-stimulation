@@ -1,0 +1,11 @@
+{
+  "schema": "tpbm-thermal-profile/1",
+  "calibrated": false,
+  "created_utc": null,
+  "port": null,
+  "run_duration_s": 40.0,
+  "plateau_window_s": 10.0,
+  "heating_target_c": 37.5,
+  "conditions": {},
+  "note": "PLACEHOLDER - not yet calibrated. heating_target_c falls back to the firmware default (37.5 C). Run calibration/calibrate_thermal.py to overwrite this with measured NIR plateau temperatures."
+}

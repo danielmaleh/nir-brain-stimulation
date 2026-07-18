@@ -1,0 +1,11 @@
+{
+  "schema": "tpbm-thermal-profile/1",
+  "calibrated": false,
+  "created_utc": null,
+  "port": null,
+  "run_duration_s": 40.0,
+  "plateau_window_s": 10.0,
+  "heating_target_c": 37.5,
+  "conditions": {},
+  "note": "PLACEHOLDER - not yet calibrated. Auto-generated copy of calibration/thermal_profile.json; the task page loads this. Run calibration/calibrate_thermal.py to overwrite both."
+}
