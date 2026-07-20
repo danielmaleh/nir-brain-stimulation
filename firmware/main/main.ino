@@ -52,6 +52,37 @@ float heaterTargetTemp = HEATER_TARGET_DEFAULT;
 const float HEATER_TARGET_MIN = 25.0;
 const float HEATER_TARGET_MAX = MAX_SAFE_TEMP - 1.0; // never within 1 C of the 40 C cutoff
 
+// --- Heater controller -----------------------------------------------------
+// Set to 1 for closed-loop PID control of the heating-control temperature; set
+// to 0 to fall back to the simple on-off hysteresis thermostat (runHeaterThermostat).
+#define HEATER_USE_PID 1
+//
+// The heater is a slow thermal load and shares Timer1 with the NIR pulse
+// generator (which never runs in the heating condition), so instead of hardware
+// PWM the PID output is applied as a TIME-PROPORTIONED (slow-PWM) duty over a
+// 1 s window: the pin is ON for (duty * window) each window. This needs no PWM
+// pin and cannot collide with the NIR timer.
+//
+// GAINS ARE A STARTING POINT AND MUST BE TUNED ON THE REAL DEVICE. The DS18B20
+// runs at 10-bit resolution (0.25 C steps), so the derivative term is noisy;
+// Kd defaults to 0 (i.e. PI control) and is smoothed by an EMA when enabled.
+const float HEATER_KP = 0.60;              // duty per +1 C of error
+const float HEATER_KI = 0.08;              // duty per (C*s) of accumulated error
+const float HEATER_KD = 0.00;              // duty per (C/s); 0 = PI control (see note)
+const float HEATER_D_FILTER = 0.80;        // EMA smoothing for the derivative term [0..1)
+const float HEATER_INTEGRAL_MAX = 1.0;     // anti-windup: clamp on the Ki*integral contribution
+const unsigned long HEATER_PID_INTERVAL_MS = 200;  // recompute rate (matches the temperature poll)
+const unsigned long HEATER_PWM_WINDOW_MS = 1000;   // time-proportioned output window
+
+// PID state (reset each time the heating-control condition starts).
+float heaterIntegral = 0.0;
+float heaterPrevError = 0.0;
+float heaterDerivFiltered = 0.0;
+float heaterDuty = 0.0;
+unsigned long heaterLastPidMs = 0;
+unsigned long heaterWindowStartMs = 0;
+unsigned long heaterLastPidLogMs = 0;
+
 const unsigned long STIMULATION_DURATION_MS = 60000; // 1 minute of stimulation
 const unsigned long REST_DURATION_MS = 180000;       // 3 minutes of rest between conditions
 
@@ -123,6 +154,8 @@ void startStimulation();
 void stopStimulation(const char* reason);
 void triggerSafetyShutdown(const char* reason);
 void runHeaterThermostat();
+void runHeaterPID();
+void resetHeaterPID();
 void updateStatusLEDs();
 void flashErrorLED();
 void startNirPulse(unsigned int ocrValue);
@@ -403,8 +436,17 @@ void changeState(SystemState newState) {
       startNirPulse(TIMER1_OCR_10HZ);
     } else if (selectedCondition == COND_40HZ) {
       startNirPulse(TIMER1_OCR_40HZ);
+    } else if (selectedCondition == COND_HEATING) {
+      // No NIR pulse; the heater controller runs from loop().
+#if HEATER_USE_PID
+      // Reset the PID and announce the heater engaged (one HEATER,1 for the whole
+      // run; the loop then modulates the pin via slow-PWM and streams HEATER_PID
+      // diagnostics). In hysteresis mode runHeaterThermostat() emits HEATER edges.
+      resetHeaterPID();
+      Serial.print(micros());
+      Serial.println(F(",HEATER,1"));
+#endif
     }
-    // COND_HEATING: no NIR pulse; runHeaterThermostat() handles the heater in loop().
   } else {
     // In REST, IDLE, or TRIP: stop the pulse train and turn off stimulation outputs.
     stopNirPulse();
@@ -458,9 +500,84 @@ void updateActuators() {
   if (currentState != STATE_STIMULATING) return;
 
   if (selectedCondition == COND_HEATING) {
+#if HEATER_USE_PID
+    runHeaterPID();
+#else
     runHeaterThermostat();
+#endif
   }
   // COND_10HZ / COND_40HZ are handled entirely by the Timer1 ISR.
+}
+
+/**
+ * @brief Resets the heater PID state. Called when the heating condition starts.
+ */
+void resetHeaterPID() {
+  heaterIntegral = 0.0;
+  heaterPrevError = 0.0;
+  heaterDerivFiltered = 0.0;
+  heaterDuty = 0.0;
+  heaterLastPidMs = millis();
+  heaterWindowStartMs = millis();
+  heaterLastPidLogMs = millis();
+}
+
+/**
+ * @brief Closed-loop PID temperature control for the heating condition.
+ *        Recomputes the duty at a fixed interval from the latest temperature and
+ *        applies it as a time-proportioned (slow-PWM) output on the heater pin.
+ *        The 40 C latching cutoff (checkSafety) still overrides everything.
+ */
+void runHeaterPID() {
+  unsigned long nowMs = millis();
+
+  // 1. Recompute the control output at a fixed interval using the latest sample.
+  if (nowMs - heaterLastPidMs >= HEATER_PID_INTERVAL_MS) {
+    float dt = (nowMs - heaterLastPidMs) / 1000.0;
+    heaterLastPidMs = nowMs;
+
+    float error = heaterTargetTemp - currentTemp;
+
+    // Integrate with anti-windup: clamp so the Ki term stays within +/-HEATER_INTEGRAL_MAX.
+    heaterIntegral += error * dt;
+    if (HEATER_KI > 0.0) {
+      float integralMax = HEATER_INTEGRAL_MAX / HEATER_KI;
+      if (heaterIntegral > integralMax) heaterIntegral = integralMax;
+      if (heaterIntegral < -integralMax) heaterIntegral = -integralMax;
+    }
+
+    // Derivative on error, EMA-smoothed (the 10-bit sensor is quantised/noisy).
+    float rawDeriv = (dt > 0.0) ? (error - heaterPrevError) / dt : 0.0;
+    heaterDerivFiltered = HEATER_D_FILTER * heaterDerivFiltered + (1.0 - HEATER_D_FILTER) * rawDeriv;
+    heaterPrevError = error;
+
+    float output = HEATER_KP * error + HEATER_KI * heaterIntegral + HEATER_KD * heaterDerivFiltered;
+    if (output < 0.0) output = 0.0;
+    if (output > 1.0) output = 1.0;
+    heaterDuty = output;
+
+    // Diagnostics at 1 Hz for logging / tuning (duty %, temp, target).
+    if (nowMs - heaterLastPidLogMs >= 1000) {
+      heaterLastPidLogMs = nowMs;
+      Serial.print(micros());
+      Serial.print(F(",HEATER_PID,"));
+      Serial.print((int)(heaterDuty * 100.0 + 0.5));
+      Serial.print(F(","));
+      Serial.print(currentTemp, 2);
+      Serial.print(F(","));
+      Serial.println(heaterTargetTemp, 2);
+    }
+  }
+
+  // 2. Apply the duty as a time-proportioned output over the PWM window.
+  if (nowMs - heaterWindowStartMs >= HEATER_PWM_WINDOW_MS) {
+    heaterWindowStartMs += HEATER_PWM_WINDOW_MS;
+    // If the loop fell far behind, snap the window to now to avoid a burst.
+    if (nowMs - heaterWindowStartMs >= HEATER_PWM_WINDOW_MS) heaterWindowStartMs = nowMs;
+  }
+  unsigned long onTimeMs = (unsigned long)(heaterDuty * HEATER_PWM_WINDOW_MS);
+  bool pinOn = (nowMs - heaterWindowStartMs) < onTimeMs;
+  digitalWrite(PIN_HEATER, pinOn ? HIGH : LOW);
 }
 
 /**

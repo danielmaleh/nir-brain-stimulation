@@ -64,7 +64,7 @@
         <ul style="padding-left: 1.25rem; display: flex; flex-direction: column; gap: 0.35rem;">
           <li>DS18B20 1-Wire temperature sensor resolution is set to 10-bit.</li>
           <li>Safety Cutoff activates instantly if temperature sensor reading meets or exceeds 40.0 °C.</li>
-          <li>Target heater temperature is 37.5 °C with a 0.5 °C hysteresis window.</li>
+          <li>Heater is regulated by a closed-loop PID controller to the calibrated NIR-matched target (default 37.5 °C); watch <code>HEATER_PID</code> lines (duty %, temp, target) in the feed.</li>
           <li>LED Blinding constraint: Mode LEDs turn off completely while active stimulation is running.</li>
         </ul>
       </section>
