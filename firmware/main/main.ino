@@ -73,6 +73,13 @@ const float HEATER_D_FILTER = 0.80;        // EMA smoothing for the derivative t
 const float HEATER_INTEGRAL_MAX = 1.0;     // anti-windup: clamp on the Ki*integral contribution
 const unsigned long HEATER_PID_INTERVAL_MS = 200;  // recompute rate (matches the temperature poll)
 const unsigned long HEATER_PWM_WINDOW_MS = 1000;   // time-proportioned output window
+const float HEATER_MAX_DUTY = 0.50;        // hard cap on heater duty (safety-limit an over-powered heater)
+
+// Rate-of-rise cutoff: if the skin temperature climbs faster than this, latch a
+// safety trip immediately instead of waiting to reach 40 C. Catches a runaway in
+// ~1 s. NOTE: this only helps when D10 actually switches the heater OFF; it CANNOT
+// protect against a shorted MOSFET (an independent in-line thermal fuse must).
+const float HEATER_MAX_RISE_C_PER_S = 5.0;
 
 // PID state (reset each time the heating-control condition starts).
 float heaterIntegral = 0.0;
@@ -478,7 +485,25 @@ void checkSafety() {
     char reasonBuf[64];
     snprintf(reasonBuf, sizeof(reasonBuf), "Over-temp detected: %s C", String(currentTemp, 2).c_str());
     triggerSafetyShutdown(reasonBuf);
+    return;
   }
+
+  // Rate-of-rise cutoff: trip if the temperature is climbing implausibly fast,
+  // rather than waiting to hit 40 C (catches a runaway ~1 s sooner).
+  static float prevRateTemp = -1000.0;
+  static unsigned long prevRateMs = 0;
+  unsigned long nowMs = millis();
+  if (prevRateTemp > -100.0 && currentState != STATE_SAFETY_TRIP) {
+    float dts = (nowMs - prevRateMs) / 1000.0;
+    if (dts > 0.05 && (currentTemp - prevRateTemp) / dts > HEATER_MAX_RISE_C_PER_S) {
+      triggerSafetyShutdown("Temperature rising too fast");
+      prevRateTemp = currentTemp;
+      prevRateMs = nowMs;
+      return;
+    }
+  }
+  prevRateTemp = currentTemp;
+  prevRateMs = nowMs;
 
   // Periodic temperature logging (every 1 second)
   static unsigned long lastTempLogMs = 0;
@@ -553,7 +578,7 @@ void runHeaterPID() {
 
     float output = HEATER_KP * error + HEATER_KI * heaterIntegral + HEATER_KD * heaterDerivFiltered;
     if (output < 0.0) output = 0.0;
-    if (output > 1.0) output = 1.0;
+    if (output > HEATER_MAX_DUTY) output = HEATER_MAX_DUTY; // hard safety cap on heater power
     heaterDuty = output;
 
     // Diagnostics at 1 Hz for logging / tuning (duty %, temp, target).
