@@ -33,11 +33,14 @@ window.ArduinoLink = (function () {
   const COND_INDEX = { 'Heating Control': 0, '10 Hz NIR': 1, '40 Hz NIR': 2 };
   const COND_CODE = ['Heating', '10Hz', '40Hz']; // for STIM_ON;cond= markers
 
-  // Heating-control target: matched to the NIR thermal plateau by the calibration
-  // tool (calibration/calibrate_thermal.py -> APP/thermal_profile.json). Null until
-  // loaded; if uncalibrated the firmware keeps its built-in 37.5 C default.
-  let heatingTargetC = null;
+  // Heating-control match: the calibration stores the temperature RISE the NIR
+  // produces (calibration/calibrate_thermal.py -> APP/thermal_profile.json). At the
+  // start of a heating run we read the participant's baseline skin temp and target
+  // baseline + rise -- NOT a fixed absolute temperature, since bench ambient is far
+  // below skin temp. Null until loaded; if uncalibrated the firmware keeps 37.5 C.
+  let heatingRiseC = null;
   let profileCalibrated = false;
+  let latestTempC = null;   // most recent temperature from TEMP_LOG telemetry
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -48,9 +51,9 @@ window.ArduinoLink = (function () {
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       const p = await resp.json();
       profileCalibrated = !!p.calibrated;
-      if (typeof p.heating_target_c === 'number') heatingTargetC = p.heating_target_c;
-      if (profileCalibrated) {
-        logFn('Thermal calibration loaded: heating-control target = ' + heatingTargetC.toFixed(2) + ' °C (NIR-matched).');
+      if (typeof p.heating_rise_c === 'number') heatingRiseC = p.heating_rise_c;
+      if (profileCalibrated && typeof heatingRiseC === 'number') {
+        logFn('Thermal calibration loaded: heating control reproduces +' + heatingRiseC.toFixed(2) + ' °C above the baseline skin temp (NIR-matched rise).');
       } else {
         logFn('Thermal profile is NOT calibrated — heating control will use the firmware default (37.5 °C). Run calibrate_thermal.py.');
       }
@@ -169,6 +172,12 @@ window.ArduinoLink = (function () {
     const ev = parts[1].trim();
     const v1 = parts[2] ? parts[2].trim() : '';
 
+    if (ev === 'TEMP_LOG') {
+      const t = parseFloat(v1);
+      if (!isNaN(t)) latestTempC = t;   // track baseline skin temp for delta matching
+      return;
+    }
+
     switch (ev) {
       case 'MODE_SELECT':
       case 'STIM_START':
@@ -257,12 +266,20 @@ window.ArduinoLink = (function () {
       logFn('⚠ Could not select "' + condName + '" on the device (still on ' + selectedCond + ').');
       return false;
     }
-    // For the heating-control condition, set the heater set point to the
-    // NIR-matched temperature from calibration before starting the thermostat.
-    if (target === 0 && profileCalibrated && typeof heatingTargetC === 'number') {
-      await send('H' + heatingTargetC.toFixed(2) + '\n');
-      await sleep(50);
-      logFn('Heating-control target set to ' + heatingTargetC.toFixed(2) + ' °C (NIR-matched).');
+    // For the heating-control condition, target the participant's baseline skin
+    // temp PLUS the calibrated NIR rise, so the warmth matches the NIR regardless
+    // of their starting skin temperature. Falls back to the firmware default if
+    // uncalibrated or no baseline reading is available yet.
+    if (target === 0 && profileCalibrated && typeof heatingRiseC === 'number') {
+      if (typeof latestTempC === 'number') {
+        const setpoint = latestTempC + heatingRiseC;
+        await send('H' + setpoint.toFixed(2) + '\n');
+        await sleep(50);
+        logFn('Heating-control target ' + setpoint.toFixed(2) + ' °C = baseline ' +
+              latestTempC.toFixed(2) + ' + NIR rise ' + heatingRiseC.toFixed(2) + ' °C.');
+      } else {
+        logFn('⚠ No baseline temp reading yet — heating uses the firmware default (37.5 °C) this run.');
+      }
     }
     await send('g');
     logFn('NIR device: started "' + condName + '".');

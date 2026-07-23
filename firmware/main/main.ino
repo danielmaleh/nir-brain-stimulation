@@ -73,7 +73,7 @@ const float HEATER_D_FILTER = 0.80;        // EMA smoothing for the derivative t
 const float HEATER_INTEGRAL_MAX = 1.0;     // anti-windup: clamp on the Ki*integral contribution
 const unsigned long HEATER_PID_INTERVAL_MS = 200;  // recompute rate (matches the temperature poll)
 const unsigned long HEATER_PWM_WINDOW_MS = 1000;   // time-proportioned output window
-const float HEATER_MAX_DUTY = 0.50;        // hard cap on heater duty (safety-limit an over-powered heater)
+const float HEATER_MAX_DUTY = 0.20;        // hard cap on heater duty (safety-limit an over-powered heater)
 
 // Rate-of-rise cutoff: if the skin temperature climbs faster than this, latch a
 // safety trip immediately instead of waiting to reach 40 C. Catches a runaway in

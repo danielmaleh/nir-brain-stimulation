@@ -151,6 +151,29 @@ def plateau_of(series, duration, window):
     return sum(pts) / len(pts)
 
 
+def cool_until_stable(ser, tol=0.25, window=20.0, max_wait=300):
+    """Wait until the sensor stops cooling — its drift over the last `window`
+    seconds is below `tol` — so each condition starts from thermal equilibrium and
+    the measured rises are comparable. More robust than chasing a fixed ambient,
+    which the setup may never return to (residual warmth in the thermal mass)."""
+    print(f"[calib] cooling until stable (< {tol} C drift over {window:.0f}s)...", flush=True)
+    t0 = time.time()
+    hist = []  # (time, temp)
+    while time.time() - t0 < max_wait:
+        temp = parse_temp(ser.readline().decode("ascii", "replace").strip())
+        if temp is None:
+            continue
+        now = time.time()
+        hist.append((now, temp))
+        hist = [(t, v) for (t, v) in hist if now - t <= window]
+        if now - t0 >= window and len(hist) >= 2:
+            drift = hist[0][1] - hist[-1][1]  # amount cooled over the window
+            if abs(drift) < tol:
+                print(f"[calib] stable at {temp:.2f} C after {now - t0:.0f}s", flush=True)
+                return
+    print("[calib] stable-wait timed out; proceeding.", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Thermal calibration for the heating-control condition.")
     ap.add_argument("--port", default=None, help="serial port (auto-detected if omitted)")
@@ -166,44 +189,60 @@ def main():
     time.sleep(2.5)  # let the Uno finish resetting/booting after the port opens
     ser.reset_input_buffer()
 
+    # Measure ambient before any stimulation so both conditions can start from it.
+    amb = []
+    drain_and_watch(ser, 5, on_temp=lambda t, temp: amb.append(temp))
+    ambient = min(amb) if amb else None
+    print(f"[calib] ambient = {ambient:.2f} C" if ambient is not None else "[calib] ambient unknown")
+
     profile = {"conditions": {}}
-    for name in ("10Hz", "40Hz"):
+    names = ("10Hz", "40Hz")
+    for i, name in enumerate(names):
         base_temp, series = run_condition(ser, name, args.duration, args.cooldown)
         plateau = plateau_of(series, args.duration, args.plateau_window)
+        rise = (plateau - base_temp) if base_temp is not None else None
         profile["conditions"][name] = {
             "baseline_c": round(base_temp, 3) if base_temp is not None else None,
             "plateau_c": round(plateau, 3),
+            "rise_c": round(rise, 3) if rise is not None else None,
             "series": series,
         }
-        print(f"[calib] {name}: baseline={base_temp:.2f} C  plateau={plateau:.2f} C")
-        # brief settle so the next condition starts from a comparable baseline
-        drain_and_watch(ser, 5)
+        print(f"[calib] {name}: baseline={base_temp:.2f} C  plateau={plateau:.2f} C  rise=+{rise:.2f} C")
+        # Let it return to thermal equilibrium before the next condition so both
+        # start from the same baseline (comparable rises).
+        if i < len(names) - 1:
+            cool_until_stable(ser)
 
     ser.close()
 
-    p10 = profile["conditions"]["10Hz"]["plateau_c"]
-    p40 = profile["conditions"]["40Hz"]["plateau_c"]
-    heating_target = round((p10 + p40) / 2.0, 2)
-    if abs(p10 - p40) > 1.0:
-        print(f"[calib] WARNING: 10 Hz and 40 Hz plateaus differ by {abs(p10 - p40):.2f} C "
+    # Match the RISE the NIR produces, not an absolute temperature: the bench
+    # ambient (~room temp) is nowhere near a participant's skin (~32-34 C), so the
+    # heating control reproduces this delta ABOVE each participant's own baseline.
+    r10 = profile["conditions"]["10Hz"]["rise_c"]
+    r40 = profile["conditions"]["40Hz"]["rise_c"]
+    heating_rise = round((r10 + r40) / 2.0, 2)
+    if abs(r10 - r40) > 0.75:
+        print(f"[calib] WARNING: 10 Hz and 40 Hz rises differ by {abs(r10 - r40):.2f} C "
               "(expected ~equal at 50% duty). Check contact/geometry before trusting this.")
 
     profile.update({
-        "schema": "tpbm-thermal-profile/1",
+        "schema": "tpbm-thermal-profile/2",
         "calibrated": True,
         "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "port": port,
         "run_duration_s": args.duration,
         "plateau_window_s": args.plateau_window,
-        # The single set point the heating-control condition targets (avg of both NIR freqs).
-        "heating_target_c": heating_target,
+        "ambient_c": round(ambient, 2) if ambient is not None else None,
+        # Temperature RISE (delta) the heating control reproduces above the
+        # participant's measured baseline skin temperature at the start of the run.
+        "heating_rise_c": heating_rise,
     })
 
     for out in (CANONICAL_OUT, BROWSER_OUT):
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(profile, indent=2))
-    print(f"\n[calib] DONE. Heating-control target = {heating_target:.2f} C "
-          f"(10Hz {p10:.2f} / 40Hz {p40:.2f}).")
+    print(f"\n[calib] DONE. NIR rise to reproduce = +{heating_rise:.2f} C above baseline "
+          f"(10Hz +{r10:.2f} / 40Hz +{r40:.2f}).")
     print(f"[calib] wrote {CANONICAL_OUT}")
     print(f"[calib] wrote {BROWSER_OUT}")
     print("[calib] Commit these so the calibration persists across sessions.")

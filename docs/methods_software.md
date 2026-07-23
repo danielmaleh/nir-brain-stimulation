@@ -87,13 +87,17 @@ percept between conditions, the heating-control set point was not fixed but was
 matched to the temperature the NIR stimulation itself produced: in a separate
 calibration procedure the 10 Hz and 40 Hz conditions were each run for the
 experimental run duration on a fixed contact set-up while the contact
-temperature was recorded, and the mean plateau temperature (averaged across the
-two frequencies, which were near-identical at 50 % duty cycle) was stored and
-used as the heating-control target in all sessions. During the heating-control
-condition the warming element was regulated to this target by a closed-loop
+temperature was recorded, and the temperature *rise* the NIR
+produced (the plateau minus the pre-stimulation baseline, averaged across the
+two frequencies, which were near-identical at 50 % duty cycle) was stored. During
+the heating-control condition the warming element was regulated by a closed-loop
 proportional–integral–derivative (PID) controller (updated at 5 Hz from the
-temperature sensor, its output applied as a time-proportioned duty cycle), which
-held the set point more tightly than a simple on–off thermostat. Consistent with the blinding
+temperature sensor, its output applied as a time-proportioned duty cycle) to
+reproduce that same rise **above each participant's own baseline skin
+temperature**, measured at the start of the run — matching the *change* in
+contact temperature the NIR causes rather than an absolute set point, since skin
+temperature varies between participants and is far above the calibration
+ambient. Consistent with the blinding
 design, the invisible 850 nm emission carried no accompanying visible indicator,
 and all condition-indicator lights were extinguished whenever stimulation was
 active. The firmware
