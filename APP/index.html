@@ -82,7 +82,11 @@
           </div>
           <div class="metric-card">
             <span class="metric-label">Remaining Time</span>
-            <span class="metric-value" id="stats-time-left">40.0s</span>
+            <span class="metric-value" id="stats-time-left">--:--</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Contact Temp</span>
+            <span class="metric-value highlight" id="stats-temp">--.- °C</span>
           </div>
         </div>
       </section>
@@ -130,6 +134,11 @@
 
     <!-- Participant Area (Main Interface) -->
     <main class="participant-view" id="participant-area">
+      <!-- Stimulation stop-reason alert (shown prominently if the NIR/heater stops mid-session) -->
+      <div id="nir-alert" role="alert" style="display:none; position:absolute; top:0; left:0; right:0; z-index:20; margin:0.75rem; padding:0.75rem 1rem; border-radius:10px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.5); color:#fecaca; font-size:0.95rem; text-align:center;">
+        <strong>⚠ Stimulation stopped</strong> — <span id="nir-alert-text"></span>
+      </div>
+
       <!-- Blinding Indicator Shield (minimalist, low luminosity) -->
       <div class="blinding-dot" id="blinding-focus-indicator"></div>
 
@@ -181,7 +190,7 @@
 
   <script src="serial_lock.js?v=1"></script>
   <script src="lsl_markers.js?v=1"></script>
-  <script src="arduino_link.js?v=3"></script>
-  <script src="app.js?v=8"></script>
+  <script src="arduino_link.js?v=4"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>

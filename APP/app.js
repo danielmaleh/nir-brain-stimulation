@@ -96,6 +96,9 @@ setupSvgGradient();
 // --- Event Listeners ---
 const elNirConnect = document.getElementById('btn-nir-connect');
 const elNirStatus = document.getElementById('nir-link-status');
+const elStatsTemp = document.getElementById('stats-temp');
+const elNirAlert = document.getElementById('nir-alert');
+const elNirAlertText = document.getElementById('nir-alert-text');
 
 window.addEventListener('load', () => {
   loadRunsHistory();
@@ -106,7 +109,12 @@ window.addEventListener('load', () => {
   if (window.ArduinoLink) {
     ArduinoLink.setLogger((m) => logToConsole('NIR', m));
     ArduinoLink.setOnStatus(updateNirStatus);
-    if (elNirConnect) elNirConnect.addEventListener('click', () => ArduinoLink.connect());
+    ArduinoLink.setOnTemp(updateTempMonitor);        // live temperature monitor
+    ArduinoLink.setOnStop(showNirAlert);             // explicit stop-reason alert
+    if (elNirConnect) elNirConnect.addEventListener('click', () => {
+      if (ArduinoLink.isConnected()) ArduinoLink.disconnect();
+      else ArduinoLink.connect();
+    });
     // Reconnect silently if this origin already has permission for the port.
     ArduinoLink.tryAutoReconnect();
   }
@@ -116,20 +124,53 @@ window.addEventListener('load', () => {
 
 /**
  * @brief Reflects the NIR device connection in the sidebar status chip.
+ *        OFFLINE / CONNECTED (no data) / RECEIVING / TRIPPED — "RECEIVING" means
+ *        the board is genuinely streaming telemetry, so a good connection is clear.
  */
-function updateNirStatus(connected, tripped) {
+function updateNirStatus(s) {
   if (!elNirStatus) return;
-  if (connected && tripped) {
-    elNirStatus.textContent = '● TRIPPED';
-    elNirStatus.style.color = 'var(--color-danger)';
-  } else if (connected) {
-    elNirStatus.textContent = '● CONNECTED';
-    elNirStatus.style.color = 'var(--color-success)';
-  } else {
+  if (!s.connected) {
     elNirStatus.textContent = '● OFFLINE';
     elNirStatus.style.color = 'var(--text-muted)';
+  } else if (s.tripped) {
+    elNirStatus.textContent = '● TRIPPED';
+    elNirStatus.style.color = 'var(--color-danger)';
+  } else if (!s.receiving) {
+    elNirStatus.textContent = '● CONNECTED (no data)';
+    elNirStatus.style.color = 'var(--color-warning)';
+  } else {
+    elNirStatus.textContent = '● RECEIVING';
+    elNirStatus.style.color = 'var(--color-success)';
   }
-  if (elNirConnect) elNirConnect.textContent = connected ? 'NIR Device Connected' : 'Connect NIR Device';
+  if (elNirConnect) elNirConnect.textContent = s.connected ? 'Disconnect NIR Device' : 'Connect NIR Device';
+  // Clear the stop alert once the device is healthy and streaming again.
+  if (s.connected && s.receiving && !s.tripped) hideNirAlert();
+}
+
+/**
+ * @brief Live contact-temperature readout (fed from every TEMP_LOG telemetry line).
+ */
+function updateTempMonitor(tempC) {
+  if (!elStatsTemp) return;
+  elStatsTemp.textContent = tempC.toFixed(1) + ' °C';
+  elStatsTemp.style.color = tempC >= 39 ? 'var(--color-danger)'
+    : tempC >= 38 ? 'var(--color-warning)' : 'var(--accent-secondary)';
+}
+
+/**
+ * @brief Prominently surface WHY the NIR/heater stopped (thermal trip, sensor
+ *        fault, firmware time-limit, connection lost) — on screen and in the console.
+ */
+function showNirAlert(reason) {
+  logToConsole('ERROR', 'STIMULATION STOPPED: ' + reason);
+  if (elNirAlert && elNirAlertText) {
+    elNirAlertText.textContent = reason;
+    elNirAlert.style.display = 'block';
+  }
+}
+
+function hideNirAlert() {
+  if (elNirAlert) elNirAlert.style.display = 'none';
 }
 
 /**
