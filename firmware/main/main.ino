@@ -49,7 +49,7 @@ const float HEATER_HYSTERESIS = 0.5;      // Hysteresis window for heating contr
 // that the 10/40 Hz NIR reached during calibration (see calibrate_thermal.py).
 // Clamped strictly below the safety cutoff whenever set via the 'H' command.
 float heaterTargetTemp = HEATER_TARGET_DEFAULT;
-const float HEATER_TARGET_MIN = 25.0;
+const float HEATER_TARGET_MIN = 20.0;
 const float HEATER_TARGET_MAX = MAX_SAFE_TEMP - 1.0; // never within 1 C of the 40 C cutoff
 
 // --- Heater controller -----------------------------------------------------
