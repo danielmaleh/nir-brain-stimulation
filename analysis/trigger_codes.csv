@@ -14,6 +14,8 @@ code,event,condition,source,description
 21,EMG_END,,task,"EMG phase ends."
 22,RT_START,,task,"7-min reaction-time phase begins (tones + responses)."
 23,RT_END,,task,"Reaction-time phase ends."
+40,SESSION_PAUSE,,task,"Session frozen by a thermal shutdown (skin temp exceeded 40 C); paired with SAFETY_TRIP."
+41,SESSION_RESUME,,task,"Session resumed after the temperature recovered to <=37.5 C (stimulation restarted)."
 29,STIM_OFF,,hardware,"Device stimulation block ended or aborted (NIR/heater off)."
 31,NIR_ON,10 Hz NIR,hardware,"NIR light physically ON — 850 nm pulsed at 10 Hz, 50% duty."
 32,NIR_ON,40 Hz NIR,hardware,"NIR light physically ON — 850 nm pulsed at 40 Hz, 50% duty."

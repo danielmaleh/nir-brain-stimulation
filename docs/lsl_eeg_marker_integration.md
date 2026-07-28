@@ -117,6 +117,7 @@ reaction-time phase, with stimulation on throughout.
 | `SESSION_END;cond=…` | `15`/`16`/`17` | session ends, stimulation off (Heating/10Hz/40Hz) | task page |
 | `EMG_START` / `EMG_END` | `20` / `21` | 10-min EMG baseline phase start/end | task page |
 | `RT_START` / `RT_END` | `22` / `23` | 7-min reaction-time phase start/end | task page |
+| `SESSION_PAUSE` / `SESSION_RESUME` | `40` / `41` | session frozen by a thermal shutdown (>40 °C) / resumed once cooled to ≤37.5 °C | task page |
 | `NIR_ON;cond=…` | `31`/`32` | NIR light physically ON (10Hz/40Hz) | device telemetry |
 | `STIM_OFF` | `29` | device stimulation block ends/aborts | device telemetry |
 | `HEAT_ON` / `HEAT_OFF` | `34` / `35` | heater element switches (heating condition) | device telemetry |

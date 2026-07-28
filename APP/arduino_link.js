@@ -228,6 +228,7 @@ window.ArduinoLink = (function () {
     if (parts.length < 2) return;
     const ev = parts[1].trim();
     const v1 = parts[2] ? parts[2].trim() : '';
+    const v2 = parts[3] ? parts[3].trim() : '';
 
     if (ev === 'TEMP_LOG') {
       const t = parseFloat(v1);
@@ -257,6 +258,11 @@ window.ArduinoLink = (function () {
         break;
       case 'STIM_STOP':
         marker('STIM_OFF');
+        break;
+      case 'STATE_CHANGE':
+        // <us>,STATE_CHANGE,<from>,<to>; state 0 = IDLE. Returning to IDLE clears a trip
+        // (e.g. after a successful 'R' reset once the temperature has recovered).
+        if (parseInt(v2) === 0 && tripped) { tripped = false; emitStatus(); }
         break;
       case 'SAFETY_TRIP':
         tripped = true;
@@ -353,9 +359,22 @@ window.ArduinoLink = (function () {
     await send('x');
   }
 
+  /**
+   * Clear a latched safety trip ('R'). The firmware re-measures and only returns to
+   * IDLE if the temperature is back below the 40 C cutoff, so call this once cooled.
+   * Resolves true if the trip actually cleared.
+   */
+  async function resetTrip() {
+    if (!connected) return false;
+    await send('r');
+    const start = Date.now();
+    while (tripped && Date.now() - start < 2500) await sleep(120);
+    return !tripped;
+  }
+
   return {
     connect, disconnect, tryAutoReconnect,
-    runCondition, stop,
+    runCondition, stop, resetTrip,
     isConnected: () => connected,
     isReceiving: () => receiving,
     isTripped: () => tripped,

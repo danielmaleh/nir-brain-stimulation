@@ -24,6 +24,15 @@ let sessionConditions = [];     // Randomized list of conditions for the session
 let currentRunIndex = 0;        // Index of the current run (0, 1, 2)
 let inPausePhase = false;       // True during intermediate rest phases
 let runPhase = null;            // 'EMG' | 'RT' — current phase within the 17-min session
+// Thermal-shutdown pause/resume state
+let pausedForThermal = false;   // true while the session is frozen waiting for cool-down
+let resumingThermal = false;    // guards the async resume so it runs once
+let pausedPhase = null;         // which phase to resume ('EMG' | 'RT')
+let pausedRemainingMs = 0;      // time left in that phase when it was paused
+// Phase-timer bookkeeping (module-level so a thermal pause can freeze/resume it)
+let phaseStartMs = 0;
+let phaseDurationMs = 0;
+let phaseOnDone = null;
 let pauseTimer = null;          // Timer for rest phase countdowns
 let sessionTimer = null;
 let stimulusTimer = null;
@@ -34,6 +43,7 @@ let responseTimer = null;       // Response-window timer; fires a NO_RESPONSE mi
 // by a 7-min reaction-time task phase. Stimulation (NIR/heater) runs the whole time.
 const EMG_PHASE_MS = 600000;       // 10 minutes — EMG phase (no tones, no clicks)
 const RT_PHASE_MS = 420000;        // 7 minutes — reaction-time phase (tones + clicks)
+const RESUME_TEMP_C = 37.5;        // after a thermal shutdown, auto-resume once temp cools to this
 const BASE_DELAY_MS = 5000;        // 5 seconds
 const JITTER_MAX_MS = 2000;        // 2 second jitter range (0 to 2s)
 const RESPONSE_WINDOW_MS = 2000;   // Wait this long for a press after a tone; no press -> NO_RESPONSE and the run continues
@@ -114,8 +124,8 @@ window.addEventListener('load', () => {
   if (window.ArduinoLink) {
     ArduinoLink.setLogger((m) => logToConsole('NIR', m));
     ArduinoLink.setOnStatus(updateNirStatus);
-    ArduinoLink.setOnTemp(updateTempMonitor);        // live temperature monitor
-    ArduinoLink.setOnStop(showNirAlert);             // explicit stop-reason alert
+    ArduinoLink.setOnTemp(onDeviceTemp);             // temp monitor + thermal-recovery watch
+    ArduinoLink.setOnStop(onDeviceStop);             // stop-reason alert + thermal pause
     if (elNirConnect) elNirConnect.addEventListener('click', () => {
       if (ArduinoLink.isConnected()) ArduinoLink.disconnect();
       else ArduinoLink.connect();
@@ -176,6 +186,102 @@ function showNirAlert(reason) {
 
 function hideNirAlert() {
   if (elNirAlert) elNirAlert.style.display = 'none';
+}
+
+// --- Thermal shutdown: pause the session, wait for cool-down, auto-resume ---
+
+/** Temperature updates: refresh the monitor and, if paused, watch for recovery. */
+function onDeviceTemp(tempC) {
+  updateTempMonitor(tempC);
+  if (pausedForThermal && !resumingThermal && tempC <= RESUME_TEMP_C) {
+    resumeAfterThermal();
+  }
+}
+
+/** Device stopped: show the reason, and if it's a safety trip during a live session, pause it. */
+function onDeviceStop(reason) {
+  showNirAlert(reason);
+  if (sessionActive && !pausedForThermal && window.ArduinoLink && ArduinoLink.isTripped()) {
+    handleThermalShutdown(reason);
+  }
+}
+
+/**
+ * @brief A safety cutoff fired mid-session: freeze the current phase (stop tones and
+ *        the countdown, remember the time left) and wait for the temperature to recover.
+ *        SAFETY_TRIP(99) is already sent by the device layer; we add SESSION_PAUSE.
+ */
+function handleThermalShutdown(reason) {
+  if (!runPhase) return; // not inside an active phase
+  pausedForThermal = true;
+  pausedPhase = runPhase;
+  pausedRemainingMs = Math.max(0, phaseDurationMs - (Date.now() - phaseStartMs));
+
+  clearInterval(sessionTimer);
+  clearTimeout(stimulusTimer);
+  clearTimeout(responseTimer);
+  awaitingResponse = false;
+
+  const leftS = Math.round(pausedRemainingMs / 1000);
+  logToConsole('ERROR', `THERMAL SHUTDOWN — session PAUSED in the ${pausedPhase} phase (${leftS}s left). ${reason}`);
+  logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'SESSION_PAUSE', null);
+  sendMarker('SESSION_PAUSE');
+
+  elStatsTimeLeft.textContent = 'PAUSED';
+  showParticipantMessage('⚠ Paused — Cooling Down',
+    `Skin temperature exceeded the 40 °C limit and stimulation was cut for safety.<br>` +
+    `The session will resume automatically once it cools to ${RESUME_TEMP_C} °C.`);
+}
+
+/**
+ * @brief Temperature recovered to the resume threshold: reset the device, restart the
+ *        condition's stimulation, announce good temperature, and continue the SAME phase
+ *        with the time that was left. Emits SESSION_RESUME to NIC2.
+ */
+async function resumeAfterThermal() {
+  if (!pausedForThermal || resumingThermal) return;
+  resumingThermal = true;
+
+  logToConsole('SYSTEM', `Temperature recovered to ≤ ${RESUME_TEMP_C} °C — clearing the trip and resuming.`);
+
+  if (window.ArduinoLink) {
+    const ok = await ArduinoLink.resetTrip();            // send 'R' (succeeds since temp < 40)
+    if (!ok) {
+      logToConsole('ERROR', 'Could not clear the device safety trip — staying paused.');
+      resumingThermal = false;
+      return;
+    }
+    await ArduinoLink.runCondition(sessionConditions[currentRunIndex]); // restart stimulation
+  }
+
+  logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'SESSION_RESUME', null);
+  sendMarker('SESSION_RESUME');
+  hideNirAlert();
+  showParticipantMessage('✓ Good Temperature — Resuming',
+    'Temperature is back to a safe level. Stimulation is back on and the session is continuing.');
+
+  // Brief "good temperature" confirmation, then continue the phase where it left off.
+  setTimeout(() => {
+    const remaining = pausedRemainingMs;
+    const phase = pausedPhase;
+    pausedForThermal = false;
+    resumingThermal = false;
+    logToConsole('SYSTEM', `Resumed ${phase} phase (${Math.round(remaining / 1000)}s remaining).`);
+
+    if (phase === 'EMG') {
+      runPhase = 'EMG';
+      showParticipantMessage('EMG Recording',
+        'Please rest with your eyes closed.<br>No response is needed during this phase.');
+      runPhaseTimer(remaining, startRtPhase);
+    } else {
+      runPhase = 'RT';
+      hideParticipantMessage();
+      elChartOverlay.classList.remove('hidden');
+      lastEventPerfTime = performance.now();
+      scheduleNextStimulus();
+      runPhaseTimer(remaining, endRun);
+    }
+  }, 2500);
 }
 
 /**
@@ -240,8 +346,8 @@ function handleKeyPress(e) {
     return;
   }
 
-  // Spacebar only counts during the reaction-time phase; ignored during EMG.
-  if (runPhase !== 'RT') return;
+  // Spacebar only counts during the reaction-time phase; ignored during EMG or a thermal pause.
+  if (runPhase !== 'RT' || pausedForThermal) return;
 
   // Handle keypress inside active trial
   const timeOffsetSec = (pressTime - trialStartPerfTime) / 1000;
@@ -541,22 +647,32 @@ function startRtPhase() {
   runPhaseTimer(RT_PHASE_MS, endRun);
 }
 
-/** Drives the phase countdown display (M:SS) and fires onDone when the phase elapses. */
+/** Drives the phase countdown display (M:SS) and fires onDone when the phase elapses.
+ *  Uses module-level bookkeeping so a thermal shutdown can freeze and later resume it. */
 function runPhaseTimer(durationMs, onDone) {
   clearInterval(sessionTimer);
-  const startMs = Date.now();
-  sessionTimer = setInterval(() => {
-    const remaining = (durationMs - (Date.now() - startMs)) / 1000;
-    elStatsTimeLeft.textContent = fmtMMSS(remaining);
-    if (remaining <= 0) { clearInterval(sessionTimer); onDone(); }
-  }, 200);
+  phaseStartMs = Date.now();
+  phaseDurationMs = durationMs;
+  phaseOnDone = onDone;
+  sessionTimer = setInterval(phaseTick, 200);
+}
+
+function phaseTick() {
+  const remaining = (phaseDurationMs - (Date.now() - phaseStartMs)) / 1000;
+  elStatsTimeLeft.textContent = fmtMMSS(remaining);
+  if (remaining <= 0) {
+    clearInterval(sessionTimer);
+    const done = phaseOnDone;
+    phaseOnDone = null;
+    if (done) done();
+  }
 }
 
 /**
  * @brief Schedules the next sound stimulus at exactly 5s + random [0, 1s] jitter.
  */
 function scheduleNextStimulus() {
-  if (!trialRunning) return;
+  if (!trialRunning || pausedForThermal) return;
 
   const jitter = Math.random() * JITTER_MAX_MS;
   const totalDelay = BASE_DELAY_MS + jitter;
@@ -575,7 +691,7 @@ function scheduleNextStimulus() {
  * @brief Triggers the stimulus tone and logs the start point.
  */
 function triggerStimulus() {
-  if (!trialRunning || runPhase !== 'RT') return;
+  if (!trialRunning || runPhase !== 'RT' || pausedForThermal) return;
 
   initAudio();
   // Schedule ~20ms ahead so the tone starts glitch-free on a Web Audio buffer boundary.
@@ -797,9 +913,12 @@ function abortTrial(reason) {
   sessionActive = false;
   trialRunning = false;
   inPausePhase = false;
+  runPhase = null;
+  pausedForThermal = false;
+  resumingThermal = false;
 
   currentSessionData.endTime = Date.now();
-  
+
   // If aborted during an active run, log the abort in the run
   if (currentTrialData && currentTrialData.logs) {
     currentTrialData.logs.push({

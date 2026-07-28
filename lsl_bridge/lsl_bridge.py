@@ -59,6 +59,8 @@ SIMPLE_CODES = {
     "EMG_END": 21,      # EMG phase ends
     "RT_START": 22,     # 7-min reaction-time phase begins
     "RT_END": 23,       # reaction-time phase ends
+    "SESSION_PAUSE": 40,  # session frozen by a thermal shutdown (>40 C)
+    "SESSION_RESUME": 41, # session resumed after the temperature recovered (<=37.5 C)
     # HARDWARE (from the device telemetry):
     "STIM_OFF": 29,     # device stimulation block ended/aborted
     "HEAT_ON": 34,      # heater element energised (heating condition)
@@ -173,6 +175,7 @@ async def main():
     print("[bridge]   TONE=1 RESPONSE=2 FALSE_ALARM=3 OMISSION=4", flush=True)
     print("[bridge]   SESSION_START=10/11/12  SESSION_END=15/16/17   (Heating/10Hz/40Hz)", flush=True)
     print("[bridge]   EMG_START=20 EMG_END=21  RT_START=22 RT_END=23", flush=True)
+    print("[bridge]   SESSION_PAUSE=40 SESSION_RESUME=41 (thermal shutdown/recovery)", flush=True)
     print("[bridge]   NIR_ON=31/32 (10Hz/40Hz)  STIM_OFF=29  HEAT_ON=34 HEAT_OFF=35  SAFETY_TRIP=99", flush=True)
 
     # Accept both the newer (ws) and older (ws, path) websockets handler signatures.
