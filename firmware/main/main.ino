@@ -90,8 +90,13 @@ unsigned long heaterLastPidMs = 0;
 unsigned long heaterWindowStartMs = 0;
 unsigned long heaterLastPidLogMs = 0;
 
-const unsigned long STIMULATION_DURATION_MS = 60000; // 1 minute of stimulation
-const unsigned long REST_DURATION_MS = 180000;       // 3 minutes of rest between conditions
+// Max stimulation time. This is a SAFETY CEILING, not the run length: the host
+// (task page) starts/stops each run over serial, so it normally ends the run long
+// before this. The ceiling only fires if the host never sends stop (e.g. a crash),
+// so the light/heater can never be left on indefinitely. Set above the 17-min
+// session (10 min EMG + 7 min reaction-time) with margin.
+const unsigned long STIMULATION_DURATION_MS = 1080000; // 18 minutes (host ends runs well before this)
+const unsigned long REST_DURATION_MS = 180000;         // 3 minutes of rest between conditions
 
 const unsigned long TEMP_POLL_INTERVAL_MS = 200;    // Poll temperature every 200ms
 const unsigned long LOG_POLL_INTERVAL_MS = 1000;    // Log rest-phase countdown every 1 second

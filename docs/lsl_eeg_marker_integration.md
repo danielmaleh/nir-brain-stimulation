@@ -104,19 +104,23 @@ So we insert a tiny **local bridge**: a small Python program (using the
 The condition suffix (`Heating`/`10Hz`/`40Hz`/`EMG`) is folded into the code as
 an offset, so each condition gets its own number:
 
+Each **session** is one condition, 17 min = a 10-min EMG phase then a 7-min
+reaction-time phase, with stimulation on throughout.
+
 | Marker string (browser → bridge) | Code (bridge → NIC2) | When it fires | Source |
 |---|---|---|---|
-| `STIM` | `1` | a tone is played (audible onset) | behavioural app |
-| `RESPONSE;rt=312.4` | `2` | space pressed in the window (RT in ms; RT kept in the CSV, not the code) | behavioural app |
-| `PREMATURE` | `3` | space pressed before the tone (false alarm) | behavioural app |
-| `NO_RESPONSE` | `4` | no press within the 2 s window (omission) | behavioural app |
-| `RUN_START;cond=…` | `10`/`11`/`12`/`13` | a run begins (Heating/10Hz/40Hz/EMG) | behavioural app |
-| `RUN_END;cond=…` | `15`/`16`/`17`/`18` | a run ends (Heating/10Hz/40Hz/EMG) | behavioural app |
-| `STIM_ON;cond=…` | `20`/`21`/`22` | stimulation block starts (Heating/10Hz/40Hz) | Arduino dashboard |
-| `STIM_OFF` | `29` | stimulation block ends or aborts | Arduino dashboard |
-| `HEATER_ON` / `HEATER_OFF` | `30` / `31` | heater element switches (heating condition) | Arduino dashboard |
-| `STIM_COND_SWITCH;cond=…` | `40`/`41`/`42` | condition switched live mid-run (Heating/10Hz/40Hz) | Arduino dashboard |
-| `SAFETY_TRIP` | `99` | 40 °C safety cutoff latched | Arduino dashboard |
+| `TONE` | `1` | auditory stimulus onset (reaction-time phase) | task page |
+| `RESPONSE;rt=312.4` | `2` | space pressed in the window (RT in ms; kept in the CSV, not the code) | task page |
+| `FALSE_ALARM` | `3` | space pressed before the tone (anticipation) | task page |
+| `OMISSION` | `4` | no press within the 2 s window | task page |
+| `SESSION_START;cond=…` | `10`/`11`/`12` | session begins, stimulation on (Heating/10Hz/40Hz) | task page |
+| `SESSION_END;cond=…` | `15`/`16`/`17` | session ends, stimulation off (Heating/10Hz/40Hz) | task page |
+| `EMG_START` / `EMG_END` | `20` / `21` | 10-min EMG baseline phase start/end | task page |
+| `RT_START` / `RT_END` | `22` / `23` | 7-min reaction-time phase start/end | task page |
+| `NIR_ON;cond=…` | `31`/`32` | NIR light physically ON (10Hz/40Hz) | device telemetry |
+| `STIM_OFF` | `29` | device stimulation block ends/aborts | device telemetry |
+| `HEAT_ON` / `HEAT_OFF` | `34` / `35` | heater element switches (heating condition) | device telemetry |
+| `SAFETY_TRIP` | `99` | 40 °C safety cutoff latched | device telemetry |
 | *(anything unrecognized)* | `0` | logged by the bridge as UNKNOWN | — |
 
 The codebook lives in `lsl_bridge.py` (`SIMPLE_CODES` / `COND_CODES`). Keep the
@@ -145,7 +149,7 @@ fires, so you can watch the mapping live.
 
 **Sanity check before real participants:** run one short test session and
 confirm the markers appear in the NIC2 recording at sensible times (e.g. a
-`STIM` roughly every ~5–7 s, each followed by a `RESPONSE` or `NO_RESPONSE`).
+a `TONE` roughly every ~5–7 s during the RT phase, each followed by a `RESPONSE` or `OMISSION`).
 
 ---
 
@@ -173,8 +177,10 @@ confirm the markers appear in the NIC2 recording at sensible times (e.g. a
 - **XDF file** (if you used LabRecorder): load with **pyxdf**, then hand the EEG
   stream + marker stream to MNE. The two share LSL timestamps, so alignment is
   automatic.
-- Group epochs by condition using the `RUN_START` codes (10/11/12/13) and the
-  `STIM_ON` codes (20/21/22) to compare 10 Hz vs 40 Hz vs heating.
+- Group epochs by condition using the `SESSION_START` codes (10/11/12), split the
+  EMG vs reaction-time phases with `EMG_START`/`RT_START` (20/22), and confirm the
+  light was physically on with the `NIR_ON` codes (31/32) — to compare 10 Hz vs
+  40 Hz vs heating.
 
 ---
 

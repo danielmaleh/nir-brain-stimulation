@@ -241,12 +241,12 @@ window.ArduinoLink = (function () {
       case 'COND_SWITCH': {
         const c = parseInt(v1);
         if (!isNaN(c) && c >= 0) selectedCond = c;
-        if (ev === 'STIM_START') marker('STIM_ON;cond=' + (COND_CODE[c] || 'unknown'));
-        if (ev === 'COND_SWITCH') marker('STIM_COND_SWITCH;cond=' + (COND_CODE[c] || 'unknown'));
+        // NIR light physically on (10/40 Hz only; heating is marked by HEAT_ON).
+        if (ev === 'STIM_START' && c >= 1) marker('NIR_ON;cond=' + (COND_CODE[c] || 'unknown'));
         break;
       }
       case 'HEATER':
-        marker(v1 === '1' ? 'HEATER_ON' : 'HEATER_OFF');
+        marker(v1 === '1' ? 'HEAT_ON' : 'HEAT_OFF');
         break;
       case 'STIM_END':
         // The firmware hit its own stimulation ceiling and stopped — a real dropout.

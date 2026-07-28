@@ -46,30 +46,34 @@ MARKER_FORMAT = "int32"
 # --- Marker codebook: readable event -> integer code written into the EEG file --
 # Keep these STABLE; the analysis scripts map codes back to events. The condition
 # order below is added as an offset to the condition-bearing base codes.
-COND_ORDER = {"Heating": 0, "10Hz": 1, "40Hz": 2, "EMG": 3}
+COND_ORDER = {"Heating": 0, "10Hz": 1, "40Hz": 2}
 
 # Events with no condition attached -> fixed code.
+#   TASK (from the experiment page):
 SIMPLE_CODES = {
-    "STIM": 1,          # tone onset (task)
-    "RESPONSE": 2,      # keypress within the response window (task)
-    "PREMATURE": 3,     # keypress before the tone / false alarm (task)
-    "NO_RESPONSE": 4,   # omission, no press in the window (task)
-    "STIM_OFF": 29,     # stimulation block ended/aborted (hardware)
-    "HEATER_ON": 30,    # heater element on (hardware)
-    "HEATER_OFF": 31,   # heater element off (hardware)
-    "SAFETY_TRIP": 99,  # 40 C safety cutoff latched (hardware)
+    "TONE": 1,          # auditory stimulus onset (reaction-time phase)
+    "RESPONSE": 2,      # spacebar within the response window
+    "FALSE_ALARM": 3,   # spacebar before the tone (anticipation)
+    "OMISSION": 4,      # no press within the response window
+    "EMG_START": 20,    # 10-min EMG baseline phase begins
+    "EMG_END": 21,      # EMG phase ends
+    "RT_START": 22,     # 7-min reaction-time phase begins
+    "RT_END": 23,       # reaction-time phase ends
+    # HARDWARE (from the device telemetry):
+    "STIM_OFF": 29,     # device stimulation block ended/aborted
+    "HEAT_ON": 34,      # heater element energised (heating condition)
+    "HEAT_OFF": 35,     # heater element off
+    "SAFETY_TRIP": 99,  # 40 C safety cutoff latched
 }
 
-# Events carrying ";cond=..." -> base code + COND_ORDER[cond].
-#   RUN_START:        10 Heating, 11 10Hz, 12 40Hz, 13 EMG
-#   RUN_END:          15 Heating, 16 10Hz, 17 40Hz, 18 EMG
-#   STIM_ON:          20 Heating, 21 10Hz, 22 40Hz
-#   STIM_COND_SWITCH: 40 Heating, 41 10Hz, 42 40Hz
+# Events carrying ";cond=..." -> base code + COND_ORDER[cond] (Heating/10Hz/40Hz).
+#   SESSION_START: 10 Heating, 11 10Hz, 12 40Hz
+#   SESSION_END:   15 Heating, 16 10Hz, 17 40Hz
+#   NIR_ON:        31 10Hz, 32 40Hz  (30 Heating unused — heating uses HEAT_ON)
 COND_CODES = {
-    "RUN_START": 10,
-    "RUN_END": 15,
-    "STIM_ON": 20,
-    "STIM_COND_SWITCH": 40,
+    "SESSION_START": 10,
+    "SESSION_END": 15,
+    "NIR_ON": 30,
 }
 
 UNKNOWN_CODE = 0  # anything unrecognized -> 0 (logged as a warning)
@@ -166,10 +170,10 @@ async def main():
     print(f"[bridge] WebSocket listening on ws://{WS_HOST}:{WS_PORT}", flush=True)
     print("[bridge] Point NIC2's marker config at this outlet name BEFORE recording.", flush=True)
     print("[bridge] Marker codebook (event -> code written into the EEG file):", flush=True)
-    print("[bridge]   STIM=1 RESPONSE=2 PREMATURE=3 NO_RESPONSE=4", flush=True)
-    print("[bridge]   RUN_START=10/11/12/13  RUN_END=15/16/17/18   (Heating/10Hz/40Hz/EMG)", flush=True)
-    print("[bridge]   STIM_ON=20/21/22  STIM_OFF=29  STIM_COND_SWITCH=40/41/42", flush=True)
-    print("[bridge]   HEATER_ON=30 HEATER_OFF=31  SAFETY_TRIP=99", flush=True)
+    print("[bridge]   TONE=1 RESPONSE=2 FALSE_ALARM=3 OMISSION=4", flush=True)
+    print("[bridge]   SESSION_START=10/11/12  SESSION_END=15/16/17   (Heating/10Hz/40Hz)", flush=True)
+    print("[bridge]   EMG_START=20 EMG_END=21  RT_START=22 RT_END=23", flush=True)
+    print("[bridge]   NIR_ON=31/32 (10Hz/40Hz)  STIM_OFF=29  HEAT_ON=34 HEAT_OFF=35  SAFETY_TRIP=99", flush=True)
 
     # Accept both the newer (ws) and older (ws, path) websockets handler signatures.
     async def entry(ws, *_):

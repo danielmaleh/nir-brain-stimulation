@@ -7,7 +7,8 @@
  * data plotting, and persistent session storage.
  * 
  * Task Protocol:
- * - Session duration: 40 seconds (20 seconds for the silent Wrist EMG run).
+ * - Each session (one of 3 conditions) is 17 min: a 10-min silent EMG-baseline phase
+ *   (no tones/clicks) then a 7-min reaction-time phase. Stimulation runs throughout.
  * - Stimulus delay: 5.0 seconds base + [0.0, 2.0] seconds random jitter after the last press or miss.
  * - Response window: 2.0 seconds after each tone; if no press arrives it is logged as
  *   NO_RESPONSE and the run continues to the next stimulus (never stalls on a missed press).
@@ -22,13 +23,17 @@ let sessionActive = false;      // True if the multi-run session is active
 let sessionConditions = [];     // Randomized list of conditions for the session
 let currentRunIndex = 0;        // Index of the current run (0, 1, 2)
 let inPausePhase = false;       // True during intermediate rest phases
+let runPhase = null;            // 'EMG' | 'RT' — current phase within the 17-min session
 let pauseTimer = null;          // Timer for rest phase countdowns
 let sessionTimer = null;
 let stimulusTimer = null;
 let responseTimer = null;       // Response-window timer; fires a NO_RESPONSE miss if no press arrives in time
 
 // Timing boundaries
-const SESSION_DURATION_MS = 40000; // 40 seconds
+// Each session (condition) is 17 min: a 10-min silent EMG baseline phase followed
+// by a 7-min reaction-time task phase. Stimulation (NIR/heater) runs the whole time.
+const EMG_PHASE_MS = 600000;       // 10 minutes — EMG phase (no tones, no clicks)
+const RT_PHASE_MS = 420000;        // 7 minutes — reaction-time phase (tones + clicks)
 const BASE_DELAY_MS = 5000;        // 5 seconds
 const JITTER_MAX_MS = 2000;        // 2 second jitter range (0 to 2s)
 const RESPONSE_WINDOW_MS = 2000;   // Wait this long for a press after a tone; no press -> NO_RESPONSE and the run continues
@@ -181,7 +186,6 @@ function condCode(name) {
     case 'Heating Control': return 'Heating';
     case '10 Hz NIR': return '10Hz';
     case '40 Hz NIR': return '40Hz';
-    case 'Wrist EMG': return 'EMG';
     default: return 'unknown';
   }
 }
@@ -236,9 +240,8 @@ function handleKeyPress(e) {
     return;
   }
 
-  // If in the Wrist EMG condition, ignore spacebar clicks
-  const currentCondition = sessionConditions[currentRunIndex];
-  if (currentCondition === 'Wrist EMG') return;
+  // Spacebar only counts during the reaction-time phase; ignored during EMG.
+  if (runPhase !== 'RT') return;
 
   // Handle keypress inside active trial
   const timeOffsetSec = (pressTime - trialStartPerfTime) / 1000;
@@ -252,12 +255,7 @@ function handleKeyPress(e) {
     const latencyMs = pressTime - stimulusPerfTime;
     sendMarker('RESPONSE;rt=' + latencyMs.toFixed(1));
     reactionTimes.push(latencyMs);
-    
-    currentTrialData.logs.push({
-      timeSec: timeOffsetSec.toFixed(3),
-      eventType: 'RESPONSE',
-      latencyMs: latencyMs.toFixed(2)
-    });
+    logEvent(timeOffsetSec.toFixed(3), 'RESPONSE', latencyMs.toFixed(2));
 
     logToConsole('PRESS', `Spacebar pressed: RT = ${latencyMs.toFixed(1)} ms`);
     updateStats();
@@ -271,13 +269,8 @@ function handleKeyPress(e) {
   } else {
     // Premature press (false alarm / anticipation)
     falseAlarmsCount++;
-    sendMarker('PREMATURE');
-    
-    currentTrialData.logs.push({
-      timeSec: timeOffsetSec.toFixed(3),
-      eventType: 'PREMATURE_PRESS',
-      latencyMs: null
-    });
+    sendMarker('FALSE_ALARM');
+    logEvent(timeOffsetSec.toFixed(3), 'FALSE_ALARM', null);
 
     logToConsole('ERROR', `Premature press detected! Resetting stimulus delay.`);
     updateStats();
@@ -417,7 +410,7 @@ function startTrial() {
   inPausePhase = false;
   
   // Shuffle conditions
-  const conditions = ['Heating Control', '10 Hz NIR', '40 Hz NIR', 'Wrist EMG'];
+  const conditions = ['Heating Control', '10 Hz NIR', '40 Hz NIR'];
   sessionConditions = shuffle([...conditions]);
   elSequenceDisplay.textContent = sessionConditions.join(' ➔ ');
 
@@ -438,82 +431,125 @@ function startTrial() {
   elBtnStart.disabled = true;
   elBtnAbort.disabled = false;
 
-  // Toggle View layout
+  // Toggle View layout. The overlay is NOT hidden here — startEmgPhase immediately
+  // repurposes it to show the EMG rest message; the RT phase hides it for the task.
   elParticipantArea.classList.add('active-trial');
-  elInfoOverlay.style.opacity = '0';
-  elInfoOverlay.style.transform = 'translateY(-20px)';
-  setTimeout(() => {
-    elInfoOverlay.style.display = 'none';
-  }, 400);
 
   logToConsole('SYSTEM', `STARTING SESSION: ${participantId} | Session: ${sessionId} | Sequence: [${sessionConditions.join(', ')}]`);
 
-  // Start the first run!
+  // Start the first session (condition).
   startRun();
 }
 
 /**
- * @brief Begins an experimental run (either 40s or 20s for Wrist EMG).
+ * @brief Latest contact temperature from the device (null if not connected). Logged with every event.
+ */
+function currentTempC() {
+  return (window.ArduinoLink && typeof ArduinoLink.getTemp === 'function') ? ArduinoLink.getTemp() : null;
+}
+
+/** Format seconds as M:SS for the long (10-17 min) phase countdowns. */
+function fmtMMSS(sec) {
+  const s = Math.max(0, Math.floor(sec));
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+
+/** Push an event into the current run log, always stamping the contact temperature. */
+function logEvent(timeSec, eventType, latencyMs) {
+  currentTrialData.logs.push({ timeSec, eventType, latencyMs, tempC: currentTempC() });
+}
+
+/** Show the participant-facing rest/instruction overlay (used during the EMG phase). */
+function showParticipantMessage(title, text) {
+  document.getElementById('overlay-title').textContent = title;
+  document.getElementById('overlay-instruction').innerHTML = text;
+  elInfoOverlay.style.display = 'block';
+  requestAnimationFrame(() => { elInfoOverlay.style.opacity = '1'; elInfoOverlay.style.transform = 'translateY(0)'; });
+  elChartOverlay.classList.add('hidden');
+}
+
+function hideParticipantMessage() {
+  elInfoOverlay.style.opacity = '0';
+  elInfoOverlay.style.transform = 'translateY(-20px)';
+  setTimeout(() => { elInfoOverlay.style.display = 'none'; }, 400);
+}
+
+/**
+ * @brief Begins a session (one condition): 10-min EMG phase then 7-min reaction-time
+ *        phase, with NIR/heating stimulation delivered throughout both phases.
  */
 function startRun() {
   if (!sessionActive) return;
 
   const currentCondition = sessionConditions[currentRunIndex];
-  const runDurationMs = currentCondition === 'Wrist EMG' ? 20000 : 40000;
-  
+
   trialRunning = true;
   awaitingResponse = false;
   reactionTimes = [];
   falseAlarmsCount = 0;
   missedCount = 0;
 
-  // Reset Run Trial Log
-  currentTrialData = {
-    condition: currentCondition,
-    logs: []
-  };
+  currentTrialData = { condition: currentCondition, logs: [] };
 
-  // Clear previous plotting chart points
   elChartPathLine.setAttribute('d', '');
   elChartDatapoints.innerHTML = '';
-  elChartOverlay.classList.remove('hidden');
 
-  // Trigger high-precision clock reference
   trialStartPerfTime = performance.now();
   lastEventPerfTime = trialStartPerfTime;
 
-  logToConsole('SYSTEM', `STARTING RUN ${currentRunIndex + 1}/4: ${currentCondition}`);
-  
-  currentTrialData.logs.push({
-    timeSec: "0.000",
-    eventType: 'RUN_START',
-    latencyMs: null
-  });
-  sendMarker('RUN_START;cond=' + condCode(currentCondition));
+  logToConsole('SYSTEM', `STARTING SESSION ${currentRunIndex + 1}/3: ${currentCondition} (17 min: 10 EMG + 7 RT)`);
+  logEvent('0.000', 'SESSION_START', null);
+  sendMarker('SESSION_START;cond=' + condCode(currentCondition));
 
-  // Drive the Arduino to deliver this run's stimulation (NIR / heater), or keep
-  // it OFF for Wrist EMG. Fire-and-forget: the run proceeds even if the device
-  // isn't connected (it just logs a warning and no light is delivered).
+  // Stimulation ON for the whole 17-min session (both phases).
   if (window.ArduinoLink) ArduinoLink.runCondition(currentCondition);
 
   updateStats();
+  startEmgPhase();
+}
 
-  // Run dynamic countdown clock
-  let startMs = Date.now();
+/**
+ * @brief EMG phase (first 10 min): silent baseline — no tones, keypresses ignored.
+ */
+function startEmgPhase() {
+  runPhase = 'EMG';
+  awaitingResponse = false;
+  logToConsole('SYSTEM', 'EMG phase (10 min) — rest, no response needed.');
+  logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'EMG_START', null);
+  sendMarker('EMG_START');
+  showParticipantMessage('EMG Recording',
+    'Please rest with your eyes closed.<br>No response is needed during this phase.<br>The reaction-time task begins afterward.');
+  runPhaseTimer(EMG_PHASE_MS, startRtPhase);
+}
+
+/**
+ * @brief Reaction-time phase (last 7 min): tones + spacebar responses, as before.
+ */
+function startRtPhase() {
+  logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'EMG_END', null);
+  sendMarker('EMG_END');
+
+  runPhase = 'RT';
+  logToConsole('SYSTEM', 'Reaction-time phase (7 min) — respond to each tone with SPACE.');
+  logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'RT_START', null);
+  sendMarker('RT_START');
+
+  hideParticipantMessage();
+  elChartOverlay.classList.remove('hidden');
+  lastEventPerfTime = performance.now();
+  scheduleNextStimulus();
+  runPhaseTimer(RT_PHASE_MS, endRun);
+}
+
+/** Drives the phase countdown display (M:SS) and fires onDone when the phase elapses. */
+function runPhaseTimer(durationMs, onDone) {
+  clearInterval(sessionTimer);
+  const startMs = Date.now();
   sessionTimer = setInterval(() => {
-    let elapsedMs = Date.now() - startMs;
-    let remaining = Math.max(0, (runDurationMs - elapsedMs) / 1000);
-    elStatsTimeLeft.textContent = `${remaining.toFixed(1)}s`;
-
-    if (elapsedMs >= runDurationMs) {
-      endRun();
-    }
-  }, 100);
-
-  // Schedule first stimulus tone only if not in Wrist EMG condition
-  if (currentCondition !== 'Wrist EMG') {
-    scheduleNextStimulus();
-  }
+    const remaining = (durationMs - (Date.now() - startMs)) / 1000;
+    elStatsTimeLeft.textContent = fmtMMSS(remaining);
+    if (remaining <= 0) { clearInterval(sessionTimer); onDone(); }
+  }, 200);
 }
 
 /**
@@ -539,7 +575,7 @@ function scheduleNextStimulus() {
  * @brief Triggers the stimulus tone and logs the start point.
  */
 function triggerStimulus() {
-  if (!trialRunning) return;
+  if (!trialRunning || runPhase !== 'RT') return;
 
   initAudio();
   // Schedule ~20ms ahead so the tone starts glitch-free on a Web Audio buffer boundary.
@@ -553,24 +589,18 @@ function triggerStimulus() {
   stimulusPerfTime = audioCtx ? audioTimeToPerf(audibleOnset) : performance.now();
   awaitingResponse = true;
 
-  // Emit the LSL 'STIM' marker at the audible onset so it lands with the tone in the EEG.
+  // Emit the LSL 'TONE' marker at the audible onset so it lands with the tone in the EEG.
   const stimMarkerDelay = Math.max(0, stimulusPerfTime - performance.now());
-  setTimeout(() => sendMarker('STIM'), stimMarkerDelay);
+  setTimeout(() => sendMarker('TONE'), stimMarkerDelay);
 
   // Open the response window: if no keypress arrives within RESPONSE_WINDOW_MS the
-  // tone is tagged NO_RESPONSE and the run advances to the next stimulus.
+  // tone is tagged OMISSION and the run advances to the next stimulus.
   clearTimeout(responseTimer);
   responseTimer = setTimeout(handleMissedResponse, RESPONSE_WINDOW_MS);
 
   const elapsedSec = (stimulusPerfTime - trialStartPerfTime) / 1000;
-  
-  currentTrialData.logs.push({
-    timeSec: elapsedSec.toFixed(3),
-    eventType: 'STIMULUS',
-    latencyMs: null
-  });
-
-  logToConsole('STIM', `Stimulus triggered at ${elapsedSec.toFixed(3)}s`);
+  logEvent(elapsedSec.toFixed(3), 'TONE', null);
+  logToConsole('STIM', `Tone at ${elapsedSec.toFixed(3)}s`);
 }
 
 /**
@@ -585,15 +615,10 @@ function handleMissedResponse() {
   const timeOffsetSec = (missPerfTime - trialStartPerfTime) / 1000;
 
   missedCount++;
-  sendMarker('NO_RESPONSE');
+  sendMarker('OMISSION');
+  logEvent(timeOffsetSec.toFixed(3), 'OMISSION', null);
 
-  currentTrialData.logs.push({
-    timeSec: timeOffsetSec.toFixed(3),
-    eventType: 'NO_RESPONSE',
-    latencyMs: null
-  });
-
-  logToConsole('MISS', `No press within ${(RESPONSE_WINDOW_MS / 1000).toFixed(1)}s — tagged NO_RESPONSE.`);
+  logToConsole('MISS', `No press within ${(RESPONSE_WINDOW_MS / 1000).toFixed(1)}s — tagged OMISSION.`);
   updateStats();
   persistProgress(); // save immediately so omissions survive a crash
 
@@ -615,24 +640,22 @@ function endRun() {
 
   trialRunning = false;
   awaitingResponse = false;
+  runPhase = null;
 
   const currentCondition = sessionConditions[currentRunIndex];
-  const runDurationMs = currentCondition === 'Wrist EMG' ? 20000 : 40000;
-  
-  currentTrialData.logs.push({
-    timeSec: (runDurationMs / 1000).toFixed(3),
-    eventType: 'RUN_END',
-    latencyMs: null
-  });
-  sendMarker('RUN_END;cond=' + condCode(currentCondition));
+  const tNow = ((performance.now() - trialStartPerfTime) / 1000).toFixed(3);
 
-  // Stop the Arduino stimulation so the NIR/heater follows the task's clock
-  // (and the board sits IDLE through the rest interval).
+  logEvent(tNow, 'RT_END', null);
+  sendMarker('RT_END');
+  logEvent(tNow, 'SESSION_END', null);
+  sendMarker('SESSION_END;cond=' + condCode(currentCondition));
+
+  // Stop the Arduino stimulation at session end (board returns to IDLE for the rest).
   if (window.ArduinoLink) ArduinoLink.stop();
 
-  logToConsole('SYSTEM', `RUN ${currentRunIndex + 1}/4 (${currentCondition}) COMPLETED.`);
+  logToConsole('SYSTEM', `SESSION ${currentRunIndex + 1}/3 (${currentCondition}) COMPLETED.`);
 
-  // Save data for the current run into the session object
+  // Save data for the current session into the session object
   currentSessionData.runs.push({
     condition: currentCondition,
     logs: [...currentTrialData.logs],
@@ -641,15 +664,13 @@ function endRun() {
     missedCount: missedCount
   });
 
-  // Persist every completed run immediately (not just at session end).
+  // Persist every completed session immediately (not just at the very end).
   saveSessionToStorage();
 
-  // Decide if we go to pause or end the session (4 runs total now)
-  if (currentRunIndex < 3) {
-    // Start intermediate pause phase
+  // 3 sessions total: pause after the first two, finish after the third.
+  if (currentRunIndex < 2) {
     startPausePhase();
   } else {
-    // All 4 runs complete!
     completeSession();
   }
 }
@@ -681,7 +702,7 @@ function startPausePhase() {
   // Update the labels in the instruction-box overlay
   document.getElementById('overlay-title').textContent = `Pause Phase (Rest)`;
   document.getElementById('overlay-instruction').innerHTML = `
-    Run ${currentRunIndex + 1} completed.<br>
+    Session ${currentRunIndex + 1} of 3 completed.<br>
     Please keep eyes closed and rest.<br>
     <strong style="color: var(--accent-secondary); font-size: 1.15rem;">Next condition starts in ${remainingPauseSec}s</strong>
   `;
@@ -692,7 +713,7 @@ function startPausePhase() {
     elStatsTimeLeft.textContent = `Rest: ${remainingPauseSec}s`;
     
     document.getElementById('overlay-instruction').innerHTML = `
-      Run ${currentRunIndex + 1} completed.<br>
+      Session ${currentRunIndex + 1} of 3 completed.<br>
       Please keep eyes closed and rest.<br>
       <strong style="color: var(--accent-secondary); font-size: 1.15rem;">Next condition starts in ${remainingPauseSec}s</strong>
     `;
@@ -959,11 +980,12 @@ window.downloadCSV = function(storageKey) {
   csvContent += `Generated Sequence: ${safe(data.conditionsSequence.join(' | '))}\r\n`;
   csvContent += `Timestamp: ${new Date(data.startTime).toISOString()}\r\n`;
   csvContent += `--------------------------------------------------\r\n`;
-  csvContent += `RunIndex,Condition,RelativeTimeSec,EventType,LatencyMs\r\n`;
+  csvContent += `SessionIndex,Condition,RelativeTimeSec,EventType,LatencyMs,ContactTempC\r\n`;
 
   data.runs.forEach((run, runIdx) => {
     run.logs.forEach(log => {
-      csvContent += `${runIdx + 1},${safe(run.condition)},${log.timeSec},${log.eventType},${log.latencyMs !== null ? log.latencyMs : '--'}\r\n`;
+      const temp = (log.tempC === null || log.tempC === undefined) ? '--' : log.tempC;
+      csvContent += `${runIdx + 1},${safe(run.condition)},${log.timeSec},${log.eventType},${log.latencyMs !== null ? log.latencyMs : '--'},${temp}\r\n`;
     });
   });
 
@@ -988,7 +1010,8 @@ window.downloadCSV = function(storageKey) {
  */
 function updateStats() {
   if (sessionActive && !inPausePhase) {
-    elStatsRunIdx.textContent = `Run ${currentRunIndex + 1} / 4`;
+    const phaseLabel = runPhase === 'EMG' ? ' · EMG' : runPhase === 'RT' ? ' · RT' : '';
+    elStatsRunIdx.textContent = `Session ${currentRunIndex + 1} / 3${phaseLabel}`;
     elStatsCondition.textContent = sessionConditions[currentRunIndex];
   } else if (sessionActive && inPausePhase) {
     elStatsRunIdx.textContent = `Resting...`;
@@ -998,10 +1021,10 @@ function updateStats() {
       elStatsCondition.textContent = `Done`;
     }
   } else if (!sessionActive && currentSessionData.endTime !== 0) {
-    elStatsRunIdx.textContent = `4 / 4 Done`;
+    elStatsRunIdx.textContent = `3 / 3 Done`;
     elStatsCondition.textContent = `Finished`;
   } else {
-    elStatsRunIdx.textContent = `0 / 4`;
+    elStatsRunIdx.textContent = `0 / 3`;
     elStatsCondition.textContent = `--`;
   }
 

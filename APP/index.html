@@ -58,7 +58,7 @@
         <div class="metrics-grid">
           <div class="metric-card">
             <span class="metric-label">Session Run</span>
-            <span class="metric-value" id="stats-run-idx">0 / 4</span>
+            <span class="metric-value" id="stats-run-idx">0 / 3</span>
           </div>
           <div class="metric-card">
             <span class="metric-label">Condition</span>
@@ -93,7 +93,7 @@
 
       <!-- Action Panel -->
       <section class="panel-section actions-panel">
-        <button id="btn-start" class="btn btn-primary">Start Session (4 Runs)</button>
+        <button id="btn-start" class="btn btn-primary">Start Session (3 Conditions)</button>
         <button id="btn-abort" class="btn btn-danger" disabled>Abort Session</button>
 
         <!-- NIR device link: the task page drives the Arduino stimulation directly -->
@@ -148,8 +148,8 @@
         <p id="overlay-instruction">Please ensure the participant is fitted with the EEG cap and NIR headgear.</p>
         <div class="task-info">
           <div class="info-item">
-            <span class="info-key">Task Duration:</span>
-            <span class="info-val">40 Seconds</span>
+            <span class="info-key">Session Duration:</span>
+            <span class="info-val">17 min (10 EMG + 7 reaction-time)</span>
           </div>
           <div class="info-item">
             <span class="info-key">Stimulus Delay:</span>
@@ -191,6 +191,6 @@
   <script src="serial_lock.js?v=1"></script>
   <script src="lsl_markers.js?v=1"></script>
   <script src="arduino_link.js?v=4"></script>
-  <script src="app.js?v=9"></script>
+  <script src="app.js?v=10"></script>
 </body>
 </html>
