@@ -41,7 +41,18 @@
 #include "pins.h"
 
 // --- Configuration & Constants ---
-const float MAX_SAFE_TEMP = 40.0;        // Emergency cutoff temperature (Celsius)
+// ###########################################################################
+// ##  BENCH BUILD - THERMAL CUTOFF DISABLED. NOT FOR USE ON A PERSON.       ##
+// ##                                                                        ##
+// ##  MAX_SAFE_TEMP is 150 C, which is ABOVE the DS18B20's +125 C range,    ##
+// ##  so checkSafety() can never trip on temperature -- this is a complete  ##
+// ##  disable, not a raised limit. HEATER_TARGET_MAX derives from it, so    ##
+// ##  'H' now accepts set points up to 149 C and the PID will chase them.   ##
+// ##                                                                        ##
+// ##  Restore to 40.0 before any participant session. The protocol requires ##
+// ##  a hard 40 C cutoff (see CLAUDE.md, README, and the ethics approval).  ##
+// ###########################################################################
+const float MAX_SAFE_TEMP = 150.0;       // Emergency cutoff temperature (Celsius)
 const float HEATER_TARGET_DEFAULT = 37.5; // Default heating-control set point (Celsius)
 const float HEATER_HYSTERESIS = 0.5;      // Hysteresis window for heating control (Celsius)
 
