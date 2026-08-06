@@ -51,8 +51,21 @@
 // ##                                                                        ##
 // ##  Restore to 40.0 before any participant session. The protocol requires ##
 // ##  a hard 40 C cutoff (see CLAUDE.md, README, and the ethics approval).  ##
+// ##                                                                        ##
+// ##  setup() detects this automatically and prints BUILD,BENCH,cutoff=150.0##
+// ##  plus a warning banner, so any serial capture records what was running.##
 // ###########################################################################
 const float MAX_SAFE_TEMP = 150.0;       // Emergency cutoff temperature (Celsius)
+
+// The cutoff the protocol requires (CLAUDE.md, README, ethics approval). Only a
+// reference value: the banner in setup() compares MAX_SAFE_TEMP against it and
+// announces any build that deviates, so a bench build cannot be mistaken for a
+// session build from the serial log alone. Deriving the banner from the constant
+// rather than hardcoding a string means the two can never drift apart.
+const float PROTOCOL_MAX_SAFE_TEMP = 40.0;
+// DS18B20 measurement ceiling. A cutoff above this can never be reached, so the
+// safety check would be unreachable code rather than merely a higher limit.
+const float SENSOR_MAX_TEMP = 125.0;
 const float HEATER_TARGET_DEFAULT = 37.5; // Default heating-control set point (Celsius)
 const float HEATER_HYSTERESIS = 0.5;      // Hysteresis window for heating control (Celsius)
 
@@ -233,6 +246,29 @@ void setup() {
   Serial.println(F("=================================================="));
   Serial.println(F("NIR Brain Stimulation - Main Experiment Controller"));
   Serial.println(F("=================================================="));
+
+  // Build identity. The board itself carries no other record of which firmware
+  // it holds, so state the active cutoff on every boot: it lands in the bridge
+  // log and any serial capture, making a session's build unambiguous after the
+  // fact. BUILD is machine-greppable; the banner below is for a human reading it.
+  Serial.print(F("BUILD,"));
+  Serial.print(MAX_SAFE_TEMP == PROTOCOL_MAX_SAFE_TEMP ? F("PROTOCOL") : F("BENCH"));
+  Serial.print(F(",cutoff="));
+  Serial.println(MAX_SAFE_TEMP, 1);
+
+  if (MAX_SAFE_TEMP != PROTOCOL_MAX_SAFE_TEMP) {
+    Serial.println(F("**************************************************"));
+    Serial.print(F("*** BENCH BUILD - thermal cutoff is "));
+    Serial.print(MAX_SAFE_TEMP, 1);
+    Serial.println(F(" C, not 40.0 C"));
+    if (MAX_SAFE_TEMP > SENSOR_MAX_TEMP) {
+      Serial.println(F("*** Cutoff is ABOVE the DS18B20's 125 C range:"));
+      Serial.println(F("*** it can NEVER trip. Protection is disabled."));
+    }
+    Serial.println(F("*** NOT FOR USE ON A PERSON."));
+    Serial.println(F("**************************************************"));
+  }
+
   Serial.println(F("Serial control: M=mode  G=go  X=stop  S=sim-overtemp  R=reset  H<temp>=heater target"));
   Serial.setTimeout(150); // bound parseFloat() when reading the 'H' argument
 
