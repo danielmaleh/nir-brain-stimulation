@@ -1,5 +1,5 @@
 code,event,condition,source,description
-0,UNKNOWN,,bridge,"Unrecognized marker string (see the bridge log; add it to the codebook in lsl_bridge.py)"
+255,UNKNOWN,,bridge,"Unrecognized marker string, or a cond= that could not be parsed (see the bridge stderr; add it to the codebook in lsl_bridge.py). Never 0: the .easy trigger column is 0 when no marker is present, so a 0 code would be indistinguishable from 'nothing happened'."
 1,TONE,,task,"Auditory stimulus onset during the reaction-time phase. Reaction time is measured from here."
 2,RESPONSE,,task,"Spacebar pressed within the 2 s response window. The RT in ms is in the behavioural CSV, not the code."
 3,FALSE_ALARM,,task,"Spacebar pressed before the tone (anticipation). Resets the stimulus timer."

@@ -71,30 +71,74 @@ SIMPLE_CODES = {
 # Events carrying ";cond=..." -> base code + COND_ORDER[cond] (Heating/10Hz/40Hz).
 #   SESSION_START: 10 Heating, 11 10Hz, 12 40Hz
 #   SESSION_END:   15 Heating, 16 10Hz, 17 40Hz
-#   NIR_ON:        31 10Hz, 32 40Hz  (30 Heating unused — heating uses HEAT_ON)
+#   NIR_ON:        31 10Hz, 32 40Hz  (30 would be "NIR_ON Heating", which is a
+#                  contradiction - the heating arm emits no NIR. See INVALID_CODES.)
 COND_CODES = {
     "SESSION_START": 10,
     "SESSION_END": 15,
     "NIR_ON": 30,
 }
 
-UNKNOWN_CODE = 0  # anything unrecognized -> 0 (logged as a warning)
+# Codes the arithmetic above can produce but which mean nothing. Emitting one is
+# always a bug upstream, so it is reported instead of written into the EEG file.
+INVALID_CODES = {30}
+
+# The browser emits a couple of these under a different spelling than the
+# codebook. They are the same events, so translate rather than drop them:
+# APP/arduino.js sends HEATER_ON/HEATER_OFF, the codebook calls them HEAT_ON/HEAT_OFF.
+ALIASES = {
+    "HEATER_ON": "HEAT_ON",
+    "HEATER_OFF": "HEAT_OFF",
+}
+
+# An unrecognised marker MUST NOT be encoded as 0. The trigger column of a
+# Neuroelectrics .easy file is 0 whenever no marker is present, so a 0 code is
+# indistinguishable from "nothing happened" and vanishes silently from the
+# recording. 255 is outside the codebook and shows up in any downstream check.
+UNKNOWN_CODE = 255
+
+# Identical codes arriving closer together than this are treated as one event.
+# Both browser pages (index.html and arduino.html) hold their own WebSocket to
+# this bridge, so a duplicated emission is possible; real task events are never
+# this close (tones are ~6 s apart, a response follows its tone by >=200 ms).
+DEDUP_SEC = 0.05
 
 
 def encode_marker(marker):
-    """Map a readable marker string to its integer code (see codebook above)."""
+    """Map a readable marker string to its integer code.
+
+    Returns (code, error). `error` is None on success, otherwise a string
+    describing why the marker could not be encoded; the caller logs it and
+    pushes UNKNOWN_CODE so the problem is visible in the recording itself.
+    """
     base, _, rest = marker.partition(";")
-    base = base.strip()
+    base = ALIASES.get(base.strip(), base.strip())
+
     if base in SIMPLE_CODES:
-        return SIMPLE_CODES[base]
+        return SIMPLE_CODES[base], None
+
     if base in COND_CODES:
         cond = ""
         for field in rest.split(";"):
             key, _, val = field.partition("=")
             if key.strip() == "cond":
                 cond = val.strip()
-        return COND_CODES[base] + COND_ORDER.get(cond, 0)
-    return UNKNOWN_CODE
+        # Never default a missing/misspelt condition to 0. That silently relabels
+        # the run as the Heating arm, which is unrecoverable after the fact.
+        if cond not in COND_ORDER:
+            return UNKNOWN_CODE, (
+                f"{base} carries no valid cond= (got {cond!r}; "
+                f"expected one of {sorted(COND_ORDER)})"
+            )
+        code = COND_CODES[base] + COND_ORDER[cond]
+        if code in INVALID_CODES:
+            return UNKNOWN_CODE, (
+                f"{base};cond={cond} maps to reserved code {code}, which is not a "
+                "real event - the heating arm must not emit NIR_ON"
+            )
+        return code, None
+
+    return UNKNOWN_CODE, f"unrecognised marker {base!r} - add it to the codebook"
 
 try:
     from pylsl import StreamInfo, StreamOutlet, IRREGULAR_RATE, local_clock
@@ -135,7 +179,7 @@ def push_code(outlet, code):
         outlet.push_sample([str(int(code))], local_clock())
 
 
-async def handle_client(ws, outlet):
+async def handle_client(ws, outlet, recent):
     peer = getattr(ws, "remote_address", "?")
     print(f"[bridge] client connected: {peer}", flush=True)
     try:
@@ -150,14 +194,26 @@ async def handle_client(ws, outlet):
                 continue
             # Translate the readable string to its numeric code and push it at
             # receipt time on the LSL clock (NIC2 only records numeric markers).
-            code = encode_marker(str(marker))
+            code, err = encode_marker(str(marker))
+
+            # Drop a repeat of the same code from any client within DEDUP_SEC.
+            # `recent` is shared across connections, so a marker emitted by both
+            # browser pages is recorded once.
+            now = local_clock()
+            if code != UNKNOWN_CODE and now - recent.get(code, -1e9) < DEDUP_SEC:
+                print(f"[bridge] .. duplicate {marker} (code {code}) within "
+                      f"{DEDUP_SEC * 1000:.0f} ms - not pushed", flush=True)
+                continue
+            recent[code] = now
+
             push_code(outlet, code)
-            if code == UNKNOWN_CODE:
-                print(f"[bridge] -> LSL marker: {marker}  -> code {code}  (UNKNOWN — add it to the codebook)", flush=True)
+            if err is not None:
+                print(f"[bridge] !! {marker!r} -> code {code}  ERROR: {err}",
+                      file=sys.stderr, flush=True)
             else:
                 print(f"[bridge] -> LSL marker: {marker}  -> code {code}", flush=True)
             try:
-                await ws.send(json.dumps({"ack": marker, "code": code}))
+                await ws.send(json.dumps({"ack": marker, "code": code, "error": err}))
             except Exception:
                 pass
     except websockets.ConnectionClosed:
@@ -178,9 +234,14 @@ async def main():
     print("[bridge]   SESSION_PAUSE=40 SESSION_RESUME=41 (thermal shutdown/recovery)", flush=True)
     print("[bridge]   NIR_ON=31/32 (10Hz/40Hz)  STIM_OFF=29  HEAT_ON=34 HEAT_OFF=35  SAFETY_TRIP=99", flush=True)
 
+    print(f"[bridge]   unrecognised markers -> {UNKNOWN_CODE} (never 0: 0 is "
+          "indistinguishable from 'no marker' in the .easy trigger column)", flush=True)
+
+    recent = {}  # code -> last push time, shared by every connected page
+
     # Accept both the newer (ws) and older (ws, path) websockets handler signatures.
     async def entry(ws, *_):
-        await handle_client(ws, outlet)
+        await handle_client(ws, outlet, recent)
 
     async with websockets.serve(entry, WS_HOST, WS_PORT):
         await asyncio.Future()  # run forever

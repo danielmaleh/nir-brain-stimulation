@@ -169,7 +169,7 @@ Markers are integers because NIC2 does not record string markers. The codebook i
 
 | Code | Event | Condition | Marker string | Source | Meaning |
 |---|---|---|---|---|---|
-| `0` | UNKNOWN | — | *(unrecognized)* | bridge | Marker string not in the codebook; logged as a warning |
+| `255` | UNKNOWN | — | *(unrecognized)* | bridge | Marker string not in the codebook, or a `cond=` that could not be parsed. Reported on stderr. **Never 0** — the `.easy` trigger column is 0 whenever no marker is present, so a 0 code is indistinguishable from "nothing happened" and vanishes silently from the recording. |
 | `1` | TONE | — | `TONE` | task page | Auditory stimulus onset. Reaction time is measured from here |
 | `2` | RESPONSE | — | `RESPONSE;rt=312.4` | task page | Spacebar within the 2 s window (the RT value lives in the CSV, not the code) |
 | `3` | FALSE_ALARM | — | `FALSE_ALARM` | task page | Spacebar *before* the tone (anticipation); resets the stimulus timer |
@@ -193,7 +193,7 @@ Markers are integers because NIC2 does not record string markers. The codebook i
 | `41` | SESSION_RESUME | — | `SESSION_RESUME` | task page | Session resumed after the temperature recovered to ≤ 37.5 °C |
 | `99` | SAFETY_TRIP | — | `SAFETY_TRIP` | device | 40 °C skin-temperature cut-off latched; all stimulation force-stopped |
 
-Condition-bearing events are encoded as **base code + condition offset** (`Heating` = 0, `10Hz` = 1, `40Hz` = 2), which is why `30` is deliberately unused — the heating control emits `HEAT_ON` (34) instead of a `NIR_ON`. "Task page" codes originate in the browser app; "device" codes are derived from Arduino serial telemetry, so `11` (the task says stimulation started) and `31` (the device confirms the LED is pulsing) are independent confirmations.
+Condition-bearing events are encoded as **base code + condition offset** (`Heating` = 0, `10Hz` = 1, `40Hz` = 2), which is why `30` is deliberately unused — the heating control emits `HEAT_ON` (34) instead of a `NIR_ON`. The arithmetic can still *produce* 30 (`NIR_ON` + Heating), which is a contradiction, so the bridge rejects it as invalid rather than writing it. A `cond=` that is missing or misspelt is likewise rejected, never defaulted to offset 0 — silently relabelling a 10 Hz run as the heating arm is unrecoverable after the fact. "Task page" codes originate in the browser app; "device" codes are derived from Arduino serial telemetry, so `11` (the task says stimulation started) and `31` (the device confirms the LED is pulsing) are independent confirmations.
 
 **Keep these codes stable** — analysis scripts key off the exact integers. To epoch: group by the `SESSION_START` codes (10–12), split phases with `EMG_START` / `RT_START` (20 / 22), and confirm the light was physically on using `NIR_ON` (31 / 32) rather than assuming it from the condition label. Load NIC2 files with MNE, or XDF with pyxdf if you recorded via LabRecorder instead.
 

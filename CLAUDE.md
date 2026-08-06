@@ -49,41 +49,6 @@ The goal is to build a custom Arduino-controlled head-mounted device that delive
 - The Arduino must log every delivered pulse and temperature reading for data integrity
 - Pulse frequency must be accurate to within ±0.5 Hz at both 10 Hz and 40 Hz
 
-## Software Architecture
-
-```
-APP/               # HTML/CSS/JS web application for experiment UI & data collection
-  SKILLS/          # Custom skill guidelines for extending cognitive tasks
-    frontend-design/ # Rules for high-precision timing, audio and style design
-    skill-creator/ # Rules for task registration and data safety
-  index.html       # Web page for researcher dashboard and participant focus screen
-  index.css        # Custom styles for the dark-mode dashboard and diagnostics
-  app.js           # JavaScript logic (precise timing, Web Audio API tone generator)
-  arduino.html     # Web Serial hardware dashboard for Arduino telemetry & control
-  arduino.js       # Serial port interface, charts, parsing, & visual indicators
-  io_test.html     # Web Serial hardware I/O diagnostic test utility
-  io_test.js       # Script to toggle pins, read buttons, and stream feedback in real-time
-
-firmware/          # Arduino sketches
-  main/            # Main experiment controller
-  calibration/     # LED power and frequency calibration tools
-  safety_test/     # Standalone safety/temperature cutoff test
-  io_test/         # Standalone hardware I/O diagnostic test sketch
-
-analysis/          # Python data analysis
-  eeg/             # EEG processing scripts
-  emg/             # EMG processing scripts
-  behavior/        # Reaction time analysis
-
-hardware/          # Circuit diagrams, BOM, PCB layouts
-
-data/
-  raw/             # Raw EEG/EMG/log files (gitignored)
-  processed/       # Processed/anonymized data
-
-docs/              # Study protocol, ethics docs, references
-```
-
 ## Experiment UI Application (APP/)
 
 The `APP/` directory houses the client-side web application used by researchers to orchestrate the reaction-time test and log measurements with high precision.
