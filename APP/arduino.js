@@ -163,7 +163,67 @@ async function openPort(selected) {
   readLoop();
 }
 
+/**
+ * @brief Turns a Web Serial failure into something the operator can act on.
+ *
+ * The raw DOMExceptions are actively misleading at the bench. The worst is
+ * requestPort's "No port selected by the user" — Chrome reports that both when
+ * the chooser was dismissed AND when no chooser was ever presented, which is
+ * what happens in embedded browser panes that do not implement the picker. The
+ * two are told apart by how long the call took: a dialog a human closed takes
+ * hundreds of ms at least, whereas one that never rendered rejects in ~0.5 ms.
+ *
+ * @param {Error} error   the thrown DOMException
+ * @param {string} stage  'request' (choosing a port) or 'open' (opening it)
+ * @param {number} elapsedMs how long the failing call took
+ */
+function describeSerialError(error, stage, elapsedMs) {
+  const name = error && error.name;
+
+  if (stage === 'request' && name === 'NotFoundError') {
+    if (elapsedMs < 100) {
+      return 'The port chooser never opened, so there was nothing to select. '
+           + 'This browser does not provide the Web Serial picker — open this '
+           + 'page in a normal Chrome or Edge window and click Connect there.';
+    }
+    return 'No port chosen. Click Connect again and pick the Arduino '
+         + '(it appears as usbmodem… on macOS, COM… on Windows).';
+  }
+
+  if (name === 'SecurityError' || name === 'NotAllowedError') {
+    return 'The browser blocked serial access. Web Serial needs a secure '
+         + 'context (https:// or localhost — not a file:// path) and a direct '
+         + 'click on Connect.';
+  }
+
+  if (name === 'InvalidStateError') {
+    return 'That port is already open in this tab. Click Disconnect first.';
+  }
+
+  if (stage === 'open') {
+    return `Could not open the port (${name || 'error'}): ${error.message}. `
+         + 'It is usually held by something else — an Arduino IDE serial '
+         + 'monitor, arduino-cli, another browser tab, or a script. Close that '
+         + 'and try again.';
+  }
+
+  return `${name || 'Error'}: ${error.message}`;
+}
+
 async function connectSerial() {
+  if (!('serial' in navigator)) {
+    const msg = 'This browser has no Web Serial API. Use Chrome or Edge — '
+              + 'Firefox and Safari do not implement it.';
+    console.error('Serial connection failed:', msg);
+    logToConsole(msg, 'error');
+    return;
+  }
+
+  let stage = 'request';
+  // Timed around requestPort ALONE. SerialLock.isHeldElsewhere() always burns
+  // its full 200 ms timeout, so timing the whole block would push every attempt
+  // past the "did a chooser actually appear?" threshold below.
+  let requestMs = 0;
   try {
     // If the I/O Diagnostics tab is holding the port, ask it to release first.
     if (window.SerialLock && await SerialLock.isHeldElsewhere()) {
@@ -171,12 +231,19 @@ async function connectSerial() {
       await SerialLock.requestTakeover();
     }
     logToConsole('Requesting port from user...', 'system');
-    const selected = await navigator.serial.requestPort();
+    const requestStarted = performance.now();
+    let selected;
+    try {
+      selected = await navigator.serial.requestPort();
+    } finally {
+      requestMs = performance.now() - requestStarted;
+    }
+    stage = 'open';
     await openPort(selected);
     logToConsole('Connected. Stream running.', 'success');
   } catch (error) {
     console.error('Serial connection failed:', error);
-    logToConsole(`Connection failed: ${error.message}`, 'error');
+    logToConsole(describeSerialError(error, stage, requestMs), 'error');
     handleDisconnectCleanup();
   }
 }
