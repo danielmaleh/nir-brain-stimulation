@@ -63,17 +63,32 @@ const float HEATER_TARGET_MAX = MAX_SAFE_TEMP - 1.0; // never within 1 C of the 
 // 1 s window: the pin is ON for (duty * window) each window. This needs no PWM
 // pin and cannot collide with the NIR timer.
 //
-// GAINS ARE A STARTING POINT AND MUST BE TUNED ON THE REAL DEVICE. The DS18B20
-// runs at 10-bit resolution (0.25 C steps), so the derivative term is noisy;
-// Kd defaults to 0 (i.e. PI control) and is smoothed by an EMA when enabled.
-const float HEATER_KP = 0.60;              // duty per +1 C of error
-const float HEATER_KI = 0.08;              // duty per (C*s) of accumulated error
+// GAINS TUNED ON THE REAL DEVICE 2026-08-05 from a measured step response
+// (22.0 -> 24.0 C target, 20% duty): initial rise 0.0403 C/s, Newton cooling
+// gives tau ~= 253 s, process gain K ~= 51 C per unit duty, sensor/transport
+// lag theta ~= 40 s. IMC-PI (Kc = tau / (K * (tau_c + theta)), Ti = tau) with a
+// conservative tau_c ~= 2*theta yields the values below.
+//
+// WHY SO SMALL: the heating control has to reproduce the NIR's calibrated
+// +0.74 C rise (calibration/thermal_profile.json), which needs only ~1.45%
+// duty to hold. The previous Kp of 0.60 commanded a capped 20% on that error --
+// ~14x the steady-state requirement -- so the output stayed saturated straight
+// through the set point and overshot by 2.75 C on a 2.5 C step.
+//
+// The DS18B20 runs at 10-bit resolution (0.25 C steps), so the derivative term
+// is noisy; Kd stays 0 (i.e. PI control) and is smoothed by an EMA when enabled.
+// Against a 0.74 C signal, 0.25 C quantisation makes derivative action useless.
+const float HEATER_KP = 0.035;             // duty per +1 C of error
+const float HEATER_KI = 0.00014;           // duty per (C*s); = Kp/Ti with Ti = tau = 253 s
 const float HEATER_KD = 0.00;              // duty per (C/s); 0 = PI control (see note)
 const float HEATER_D_FILTER = 0.80;        // EMA smoothing for the derivative term [0..1)
-const float HEATER_INTEGRAL_MAX = 1.0;     // anti-windup: clamp on the Ki*integral contribution
+const float HEATER_MAX_DUTY = 0.20;        // hard cap on heater duty (safety-limit an over-powered heater)
+// Anti-windup: the Ki term must never exceed what the actuator can actually
+// deliver. This was 1.0 -- five times the 0.20 duty cap -- so the integral could
+// wind up to a value no amount of negative error could unwind in time.
+const float HEATER_INTEGRAL_MAX = HEATER_MAX_DUTY;
 const unsigned long HEATER_PID_INTERVAL_MS = 200;  // recompute rate (matches the temperature poll)
 const unsigned long HEATER_PWM_WINDOW_MS = 1000;   // time-proportioned output window
-const float HEATER_MAX_DUTY = 0.20;        // hard cap on heater duty (safety-limit an over-powered heater)
 
 // Rate-of-rise cutoff: if the skin temperature climbs faster than this, latch a
 // safety trip immediately instead of waiting to reach 40 C. Catches a runaway in
@@ -568,18 +583,31 @@ void runHeaterPID() {
 
     float error = heaterTargetTemp - currentTemp;
 
-    // Integrate with anti-windup: clamp so the Ki term stays within +/-HEATER_INTEGRAL_MAX.
-    heaterIntegral += error * dt;
+    // Derivative on error, EMA-smoothed (the 10-bit sensor is quantised/noisy).
+    float rawDeriv = (dt > 0.0) ? (error - heaterPrevError) / dt : 0.0;
+    heaterDerivFiltered = HEATER_D_FILTER * heaterDerivFiltered + (1.0 - HEATER_D_FILTER) * rawDeriv;
+    heaterPrevError = error;
+
+    // Conditional integration (anti-windup). Provisionally integrate, then keep
+    // the new value ONLY if it does not drive the output further into a rail it
+    // is already against. A cold start saturates at HEATER_MAX_DUTY for minutes;
+    // integrating through that is what produced the old overshoot.
+    float candidateIntegral = heaterIntegral + error * dt;
+    float candidate = HEATER_KP * error + HEATER_KI * candidateIntegral
+                      + HEATER_KD * heaterDerivFiltered;
+    bool pushingUpWhileHigh = (candidate > HEATER_MAX_DUTY) && (error > 0.0);
+    bool pushingDownWhileLow = (candidate < 0.0) && (error < 0.0);
+    if (!pushingUpWhileHigh && !pushingDownWhileLow) {
+      heaterIntegral = candidateIntegral;
+    }
+
+    // Hard clamp as a backstop, so the Ki contribution can never exceed the duty
+    // the actuator is actually allowed to deliver.
     if (HEATER_KI > 0.0) {
       float integralMax = HEATER_INTEGRAL_MAX / HEATER_KI;
       if (heaterIntegral > integralMax) heaterIntegral = integralMax;
       if (heaterIntegral < -integralMax) heaterIntegral = -integralMax;
     }
-
-    // Derivative on error, EMA-smoothed (the 10-bit sensor is quantised/noisy).
-    float rawDeriv = (dt > 0.0) ? (error - heaterPrevError) / dt : 0.0;
-    heaterDerivFiltered = HEATER_D_FILTER * heaterDerivFiltered + (1.0 - HEATER_D_FILTER) * rawDeriv;
-    heaterPrevError = error;
 
     float output = HEATER_KP * error + HEATER_KI * heaterIntegral + HEATER_KD * heaterDerivFiltered;
     if (output < 0.0) output = 0.0;
