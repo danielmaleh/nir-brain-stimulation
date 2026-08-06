@@ -372,6 +372,18 @@ void startNirPulse(unsigned int ocrValue) {
   OCR1A = ocrValue;
   TCCR1B |= (1 << WGM12);
   TCCR1B |= (1 << CS11) | (1 << CS10);
+
+  // Clear any stale compare-match flag BEFORE enabling the interrupt (write-1-to-clear).
+  // The Arduino core's init() leaves Timer1 free-running (prescaler 64, 8-bit phase-
+  // correct PWM) with OCR1A = 0, so TCNT1 hits the compare value constantly and OCF1A
+  // is already latched by the time we get here. Enabling OCIE1A with it pending fires
+  // the ISR on the very next instruction: the pin we just drove HIGH was toggled back
+  // LOW ~12 us later, giving a real (optically negligible) 12 us blip and a first
+  // inter-pulse interval of half a period. Clearing the flag makes arming idempotent
+  // regardless of what Timer1 did beforehand, so the first ISR edge lands exactly one
+  // half-period after the rising edge recorded above.
+  TIFR1 = (1 << OCF1A);
+
   TIMSK1 |= (1 << OCIE1A);
   interrupts();
 }
