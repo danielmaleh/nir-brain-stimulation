@@ -50,6 +50,12 @@
           <label>Session Sequence (Randomized)</label>
           <div class="sequence-display" id="sequence-display">Auto-generated at start</div>
         </div>
+        <div class="input-group" style="margin-top: 0.5rem;">
+          <label for="test-mode" style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; text-transform: none;">
+            <input type="checkbox" id="test-mode" style="width: auto; margin: 0;">
+            <span>Test session — bench dry-run (2.5 min EMG + 2.5 min RT per condition; CSV stamped TEST)</span>
+          </label>
+        </div>
       </section>
 
       <!-- Real-Time Metrics -->
@@ -149,7 +155,7 @@
         <div class="task-info">
           <div class="info-item">
             <span class="info-key">Session Duration:</span>
-            <span class="info-val">17 min (10 EMG + 7 reaction-time)</span>
+            <span class="info-val" id="session-duration-val">17 min (10 EMG + 7 reaction-time)</span>
           </div>
           <div class="info-item">
             <span class="info-key">Stimulus Delay:</span>
@@ -190,7 +196,7 @@
 
   <script src="serial_lock.js?v=1"></script>
   <script src="lsl_markers.js?v=1"></script>
-  <script src="arduino_link.js?v=5"></script>
-  <script src="app.js?v=11"></script>
+  <script src="arduino_link.js?v=6"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>

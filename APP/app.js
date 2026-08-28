@@ -43,6 +43,23 @@ let responseTimer = null;       // Response-window timer; fires a NO_RESPONSE mi
 // by a 7-min reaction-time task phase. Stimulation (NIR/heater) runs the whole time.
 const EMG_PHASE_MS = 600000;       // 10 minutes — EMG phase (no tones, no clicks)
 const RT_PHASE_MS = 420000;        // 7 minutes — reaction-time phase (tones + clicks)
+
+// TEST SESSION (researcher toggle in the config panel): a shortened bench
+// dry-run — 2.5 min EMG + 2.5 min RT per condition instead of 10 + 7. Markers,
+// randomisation, rest pauses and stimulation control are IDENTICAL to a real
+// session; only the phase lengths change, and the CSV/log are stamped TEST so
+// this data can never pass as a real session. The toggle deliberately does NOT
+// touch the thermal cutoff: that lives in firmware (MAX_SAFE_TEMP, compiled),
+// and the page can only VERIFY which build is flashed via the boot BUILD line.
+const TEST_EMG_PHASE_MS = 150000;  // 2.5 minutes
+const TEST_RT_PHASE_MS = 150000;   // 2.5 minutes
+let testModeActive = false;        // latched from the checkbox when a session starts
+function emgPhaseMs() { return testModeActive ? TEST_EMG_PHASE_MS : EMG_PHASE_MS; }
+function rtPhaseMs() { return testModeActive ? TEST_RT_PHASE_MS : RT_PHASE_MS; }
+function sessionShape() {
+  const m = (ms) => (ms / 60000).toFixed(1).replace(/\.0$/, '');
+  return `${m(emgPhaseMs() + rtPhaseMs())} min: ${m(emgPhaseMs())} EMG + ${m(rtPhaseMs())} RT`;
+}
 const RESUME_TEMP_C = 37.5;        // after a thermal shutdown, auto-resume once temp cools to this
 const BASE_DELAY_MS = 5000;        // 5 seconds
 const JITTER_MAX_MS = 2000;        // 2 second jitter range (0 to 2s)
@@ -117,6 +134,16 @@ const elNirAlertText = document.getElementById('nir-alert-text');
 
 window.addEventListener('load', () => {
   loadRunsHistory();
+  // Keep the calibration card's duration line honest when the test toggle flips.
+  const elTestModeCb = document.getElementById('test-mode');
+  const elDurationVal = document.getElementById('session-duration-val');
+  if (elTestModeCb && elDurationVal) {
+    elTestModeCb.addEventListener('change', () => {
+      elDurationVal.textContent = elTestModeCb.checked
+        ? '5 min (2.5 EMG + 2.5 reaction-time) — TEST'
+        : '17 min (10 EMG + 7 reaction-time)';
+    });
+  }
   // Connect to the LSL marker bridge (best-effort; the task runs fine without it).
   if (window.LSLMarkers) LSLMarkers.connect({ logger: (m) => logToConsole('LSL', m) });
 
@@ -509,7 +536,30 @@ function startTrial() {
 
   const pauseSecInput = parseInt(elPauseDuration.value);
   const pauseDurationSec = isNaN(pauseSecInput) || pauseSecInput < 5 ? 180 : pauseSecInput;
-  
+
+  // Test-session toggle + firmware build gate. The cutoff itself is compiled
+  // into the firmware; the page can only verify which build is flashed (from
+  // the boot BUILD line) and refuse the dangerous combination.
+  const elTestMode = document.getElementById('test-mode');
+  const wantTest = !!(elTestMode && elTestMode.checked);
+  const build = (window.ArduinoLink && ArduinoLink.getBuildInfo) ? ArduinoLink.getBuildInfo() : null;
+  if (!wantTest && build && build.type === 'BENCH') {
+    alert('The connected device is running a BENCH firmware build — its thermal cutoff is '
+      + (build.cutoff ?? '?') + ' °C, i.e. the 40 °C protection is DISABLED.\n\n'
+      + 'A real session must not run on this build. Reflash firmware/main from the main '
+      + 'branch, or tick "Test session" for a bench dry-run.');
+    return;
+  }
+  if (wantTest) {
+    if (build && build.type === 'PROTOCOL') {
+      logToConsole('SYSTEM', 'Test session on a PROTOCOL build: the 40 °C cutoff is ACTIVE and may trip during the test (safe — the session auto-pauses and resumes).');
+    } else if (!build) {
+      logToConsole('SYSTEM', '⚠ Test session: firmware build unknown (no BUILD line seen — old firmware or not connected). Cannot verify which thermal cutoff is flashed.');
+    }
+  }
+  testModeActive = wantTest;
+  if (elTestMode) elTestMode.disabled = true;
+
   // Set States
   sessionActive = true;
   currentRunIndex = 0;
@@ -527,6 +577,7 @@ function startTrial() {
     startTime: Date.now(),
     endTime: 0,
     conditionsSequence: [...sessionConditions],
+    testMode: testModeActive,
     runs: []
   };
 
@@ -603,7 +654,7 @@ function startRun() {
   trialStartPerfTime = performance.now();
   lastEventPerfTime = trialStartPerfTime;
 
-  logToConsole('SYSTEM', `STARTING SESSION ${currentRunIndex + 1}/3: ${currentCondition} (17 min: 10 EMG + 7 RT)`);
+  logToConsole('SYSTEM', `STARTING SESSION ${currentRunIndex + 1}/3: ${currentCondition} (${sessionShape()})${testModeActive ? ' [TEST SESSION]' : ''}`);
   logEvent('0.000', 'SESSION_START', null);
   sendMarker('SESSION_START;cond=' + condCode(currentCondition));
 
@@ -620,12 +671,12 @@ function startRun() {
 function startEmgPhase() {
   runPhase = 'EMG';
   awaitingResponse = false;
-  logToConsole('SYSTEM', 'EMG phase (10 min) — rest, no response needed.');
+  logToConsole('SYSTEM', `EMG phase (${(emgPhaseMs()/60000).toFixed(1)} min) — rest, no response needed.`);
   logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'EMG_START', null);
   sendMarker('EMG_START');
   showParticipantMessage('EMG Recording',
     'Please rest with your eyes closed.<br>No response is needed during this phase.<br>The reaction-time task begins afterward.');
-  runPhaseTimer(EMG_PHASE_MS, startRtPhase);
+  runPhaseTimer(emgPhaseMs(), startRtPhase);
 }
 
 /**
@@ -636,7 +687,7 @@ function startRtPhase() {
   sendMarker('EMG_END');
 
   runPhase = 'RT';
-  logToConsole('SYSTEM', 'Reaction-time phase (7 min) — respond to each tone with SPACE.');
+  logToConsole('SYSTEM', `Reaction-time phase (${(rtPhaseMs()/60000).toFixed(1)} min) — respond to each tone with SPACE.`);
   logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'RT_START', null);
   sendMarker('RT_START');
 
@@ -644,7 +695,7 @@ function startRtPhase() {
   elChartOverlay.classList.remove('hidden');
   lastEventPerfTime = performance.now();
   scheduleNextStimulus();
-  runPhaseTimer(RT_PHASE_MS, endRun);
+  runPhaseTimer(rtPhaseMs(), endRun);
 }
 
 /** Drives the phase countdown display (M:SS) and fires onDone when the phase elapses.
@@ -954,6 +1005,8 @@ function resetControlInterface() {
   elSessionRun.disabled = false;
   elPauseDuration.disabled = false;
   elBtnStart.disabled = false;
+  const elTestModeReset = document.getElementById('test-mode');
+  if (elTestModeReset) elTestModeReset.disabled = false;
   elBtnAbort.disabled = true;
 
   elStatsTimeLeft.textContent = '40.0s';
@@ -1094,6 +1147,7 @@ window.downloadCSV = function(storageKey) {
 
   // Header details
   csvContent += `Experiment: NIR tPBM Cognitive Motor Performance Task\r\n`;
+  if (data.testMode) csvContent += `*** TEST SESSION — shortened bench dry-run, NOT participant data ***\r\n`;
   csvContent += `Participant ID: ${safe(data.participantId)}\r\n`;
   csvContent += `Session ID: ${safe(data.sessionId)}\r\n`;
   csvContent += `Generated Sequence: ${safe(data.conditionsSequence.join(' | '))}\r\n`;
