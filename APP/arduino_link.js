@@ -48,6 +48,7 @@ window.ArduinoLink = (function () {
   let heatingRiseC = null;
   let profileCalibrated = false;
   let latestTempC = null;
+  let buildInfo = null;      // {type: "PROTOCOL"|"BENCH", cutoff} from the boot BUILD line
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -56,7 +57,7 @@ window.ArduinoLink = (function () {
   function setOnStatus(fn) { statusFn = fn; }
   function setOnTemp(fn) { tempFn = fn; }
   function setOnStop(fn) { stopFn = fn; }
-  function statusObj() { return { connected, receiving, tripped, reason: lastReason }; }
+  function statusObj() { return { connected, receiving, tripped, reason: lastReason, build: buildInfo }; }
   function emitStatus() { if (statusFn) statusFn(statusObj()); }
   function marker(m) { if (window.LSLMarkers) window.LSLMarkers.send(m); }
 
@@ -91,6 +92,7 @@ window.ArduinoLink = (function () {
     lastReason = '';
     selectedCond = 0;
     tripped = false;
+    buildInfo = null; // fresh boot banner arrives after the open-triggered reset
     if (window.SerialLock) SerialLock.claim(); // the dashboard yields to us
     emitStatus();
     loadThermalProfile();
@@ -216,6 +218,24 @@ window.ArduinoLink = (function () {
 
   function parseLine(line) {
     if (!line) return;
+
+    // Boot banner build identity: "BUILD,PROTOCOL,cutoff=40.0" or
+    // "BUILD,BENCH,cutoff=150.0". Printed once per boot by firmware/main, so
+    // it arrives on every connect (opening the port resets the Uno). This is
+    // the only way the page can know which thermal cutoff is actually flashed.
+    if (line.indexOf('BUILD,') === 0) {
+      const bp = line.split(',');
+      const cutoff = parseFloat((bp[2] || '').split('=')[1]);
+      buildInfo = { type: (bp[1] || '').trim(), cutoff: isNaN(cutoff) ? null : cutoff };
+      if (buildInfo.type === 'BENCH') {
+        logFn('⚠ BENCH FIRMWARE flashed: thermal cutoff is ' + (buildInfo.cutoff ?? '?') +
+              ' °C — the 40 °C protection is NOT active. Not for use on a person.');
+      } else {
+        logFn('Firmware build: ' + buildInfo.type + ' (thermal cutoff ' + buildInfo.cutoff + ' °C).');
+      }
+      emitStatus();
+      return;
+    }
 
     // Boot-time sensor fault
     if (line.indexOf('No temperature sensor') >= 0) {
@@ -379,6 +399,7 @@ window.ArduinoLink = (function () {
     isReceiving: () => receiving,
     isTripped: () => tripped,
     getTemp: () => latestTempC,
+    getBuildInfo: () => buildInfo,
     setLogger, setOnStatus, setOnTemp, setOnStop,
   };
 })();
