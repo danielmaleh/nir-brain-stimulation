@@ -1,0 +1,167 @@
+{
+  ".claude/settings.local.json": {
+    "mtime": 1785286834.775103,
+    "ast_hash": "e69114648fc6af5c41e4e07e3ccae8a6",
+    "semantic_hash": "e69114648fc6af5c41e4e07e3ccae8a6"
+  },
+  "APP/app.js": {
+    "mtime": 1785277173.6380694,
+    "ast_hash": "ef0485b93f6bd8439d5dec03f915fd2d",
+    "semantic_hash": "ef0485b93f6bd8439d5dec03f915fd2d"
+  },
+  "APP/arduino.js": {
+    "mtime": 1784077304.5450063,
+    "ast_hash": "67c1c73b2b512815825a3e0622b0ee34",
+    "semantic_hash": "67c1c73b2b512815825a3e0622b0ee34"
+  },
+  "APP/arduino_link.js": {
+    "mtime": 1785277211.3058474,
+    "ast_hash": "2f79c29083431eb0d85aa746b45d86d0",
+    "semantic_hash": "2f79c29083431eb0d85aa746b45d86d0"
+  },
+  "APP/io_test.js": {
+    "mtime": 1784077321.48122,
+    "ast_hash": "6c24c158f88b2a7bf61312064161b305",
+    "semantic_hash": "6c24c158f88b2a7bf61312064161b305"
+  },
+  "APP/lsl_markers.js": {
+    "mtime": 1783966779.139577,
+    "ast_hash": "61566e0d8814cebd9b12b58fc9398274",
+    "semantic_hash": "61566e0d8814cebd9b12b58fc9398274"
+  },
+  "APP/serial_lock.js": {
+    "mtime": 1784077288.4842324,
+    "ast_hash": "75505398ff8c4f45b4cc0afe3adf46a5",
+    "semantic_hash": "75505398ff8c4f45b4cc0afe3adf46a5"
+  },
+  "APP/thermal_profile.json": {
+    "mtime": 1784774536.1557393,
+    "ast_hash": "ce912721d13dee43f3068a1cb5937487",
+    "semantic_hash": "ce912721d13dee43f3068a1cb5937487"
+  },
+  "APP/wiring_check.js": {
+    "mtime": 1783623245.8224404,
+    "ast_hash": "9f5aad1baefe0db857bf776446aad990",
+    "semantic_hash": "9f5aad1baefe0db857bf776446aad990"
+  },
+  "calibration/calibrate_thermal.py": {
+    "mtime": 1784774381.1462576,
+    "ast_hash": "29c71912b6ce1dcb6cea2083a9f1c8fe",
+    "semantic_hash": "29c71912b6ce1dcb6cea2083a9f1c8fe"
+  },
+  "calibration/thermal_profile.json": {
+    "mtime": 1784774536.1543763,
+    "ast_hash": "ce912721d13dee43f3068a1cb5937487",
+    "semantic_hash": "ce912721d13dee43f3068a1cb5937487"
+  },
+  "firmware/io_test/pins.h": {
+    "mtime": 1782947731.9720209,
+    "ast_hash": "35f5f8e5270977938009f34f4a1c4945",
+    "semantic_hash": "35f5f8e5270977938009f34f4a1c4945"
+  },
+  "firmware/main/pins.h": {
+    "mtime": 1782947731.9720209,
+    "ast_hash": "35f5f8e5270977938009f34f4a1c4945",
+    "semantic_hash": "35f5f8e5270977938009f34f4a1c4945"
+  },
+  "firmware/safety_test/pins.h": {
+    "mtime": 1782947731.9720209,
+    "ast_hash": "35f5f8e5270977938009f34f4a1c4945",
+    "semantic_hash": "35f5f8e5270977938009f34f4a1c4945"
+  },
+  "lsl_bridge/lsl_bridge.py": {
+    "mtime": 1785277226.710788,
+    "ast_hash": "49206f3ebfdfc97205cb0e866fec1a8b",
+    "semantic_hash": "49206f3ebfdfc97205cb0e866fec1a8b"
+  },
+  "lsl_bridge/test_bridge.py": {
+    "mtime": 1783975857.243751,
+    "ast_hash": "4b2b08614a9f48afbc43123d98ccc5b5",
+    "semantic_hash": "4b2b08614a9f48afbc43123d98ccc5b5"
+  },
+  "APP/SKILLS/frontend-design/SKILL.md": {
+    "mtime": 1782329650.0022895,
+    "ast_hash": "5e789bee395b76bd126d5c8eeba69158",
+    "semantic_hash": "5e789bee395b76bd126d5c8eeba69158"
+  },
+  "APP/SKILLS/skill-creator/SKILL.md": {
+    "mtime": 1782329653.6939573,
+    "ast_hash": "d4f330f490a060e5ee2aa7ae9d3f3f9c",
+    "semantic_hash": "d4f330f490a060e5ee2aa7ae9d3f3f9c"
+  },
+  "APP/arduino.html": {
+    "mtime": 1784585944.3643837,
+    "ast_hash": "5499c555ce36ad8c78e9f874d65198b7",
+    "semantic_hash": "5499c555ce36ad8c78e9f874d65198b7"
+  },
+  "APP/index.html": {
+    "mtime": 1785277244.9378479,
+    "ast_hash": "354e4282e466c273cf54762cde26bfb7",
+    "semantic_hash": "354e4282e466c273cf54762cde26bfb7"
+  },
+  "APP/io_test.html": {
+    "mtime": 1784077327.8655376,
+    "ast_hash": "e800343e194ecd065963aeba1b930ce9",
+    "semantic_hash": "e800343e194ecd065963aeba1b930ce9"
+  },
+  "APP/wiring_check.html": {
+    "mtime": 1783699632.5198834,
+    "ast_hash": "07f62ed7c0289cb393f4873253136668",
+    "semantic_hash": "07f62ed7c0289cb393f4873253136668"
+  },
+  "CLAUDE.md": {
+    "mtime": 1785208265.0622568,
+    "ast_hash": "1c097216f72fafe510e782c4d06e94fb",
+    "semantic_hash": "1c097216f72fafe510e782c4d06e94fb"
+  },
+  "SETUP.md": {
+    "mtime": 1784142048.2467027,
+    "ast_hash": "1c7f7919e1372ff0292827bfb95b5fbd",
+    "semantic_hash": "1c7f7919e1372ff0292827bfb95b5fbd"
+  },
+  "calibration/README.md": {
+    "mtime": 1784338303.0071843,
+    "ast_hash": "1145eb19563e8bf7c1458671cbf82db7",
+    "semantic_hash": "1145eb19563e8bf7c1458671cbf82db7"
+  },
+  "calibration/requirements.txt": {
+    "mtime": 1784337875.120668,
+    "ast_hash": "4ab92c81782f132a86d34dd5b3ffc37d",
+    "semantic_hash": "4ab92c81782f132a86d34dd5b3ffc37d"
+  },
+  "docs/lsl_eeg_marker_integration.md": {
+    "mtime": 1785277239.3393657,
+    "ast_hash": "ad092f3207ad5174877efc11fad6bb23",
+    "semantic_hash": "ad092f3207ad5174877efc11fad6bb23"
+  },
+  "docs/methods_software.md": {
+    "mtime": 1784773172.134023,
+    "ast_hash": "e248f65374a7e321ce4a9aa309ac3fc8",
+    "semantic_hash": "e248f65374a7e321ce4a9aa309ac3fc8"
+  },
+  "docs/superpowers/specs/2026-07-02-wiring-check-schematic-design.md": {
+    "mtime": 1783028900.3558364,
+    "ast_hash": "1b8d4e85c431a8718547abc3f85f6e5d",
+    "semantic_hash": "1b8d4e85c431a8718547abc3f85f6e5d"
+  },
+  "docs/testing_and_validation.md": {
+    "mtime": 1782947946.1595488,
+    "ast_hash": "9272c1284cf0d0fa97f0580634b5f36b",
+    "semantic_hash": "9272c1284cf0d0fa97f0580634b5f36b"
+  },
+  "hardware/wiring_guide.md": {
+    "mtime": 1782947935.6620383,
+    "ast_hash": "b12040b8ed763639112e5691c8c0e439",
+    "semantic_hash": "b12040b8ed763639112e5691c8c0e439"
+  },
+  "lsl_bridge/README.md": {
+    "mtime": 1783966759.0611846,
+    "ast_hash": "1227a4f33c301e2838237b0516ec7593",
+    "semantic_hash": "1227a4f33c301e2838237b0516ec7593"
+  },
+  "lsl_bridge/requirements.txt": {
+    "mtime": 1783966748.6359804,
+    "ast_hash": "2e3dd8dec266d92349023e9b3c9594b1",
+    "semantic_hash": "2e3dd8dec266d92349023e9b3c9594b1"
+  }
+}
