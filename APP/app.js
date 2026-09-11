@@ -45,14 +45,14 @@ const EMG_PHASE_MS = 600000;       // 10 minutes — EMG phase (no tones, no cli
 const RT_PHASE_MS = 420000;        // 7 minutes — reaction-time phase (tones + clicks)
 
 // TEST SESSION (researcher toggle in the config panel): a shortened bench
-// dry-run — 2.5 min EMG + 2.5 min RT per condition instead of 10 + 7. Markers,
+// dry-run — 5 min EMG + 5 min RT per condition instead of 10 + 7. Markers,
 // randomisation, rest pauses and stimulation control are IDENTICAL to a real
 // session; only the phase lengths change, and the CSV/log are stamped TEST so
 // this data can never pass as a real session. The toggle deliberately does NOT
 // touch the thermal cutoff: that lives in firmware (MAX_SAFE_TEMP, compiled),
 // and the page can only VERIFY which build is flashed via the boot BUILD line.
-const TEST_EMG_PHASE_MS = 150000;  // 2.5 minutes
-const TEST_RT_PHASE_MS = 150000;   // 2.5 minutes
+const TEST_EMG_PHASE_MS = 5 * 60 * 1000;  // 5 minutes
+const TEST_RT_PHASE_MS = 5 * 60 * 1000;   // 5 minutes
 let testModeActive = false;        // latched from the checkbox when a session starts
 function emgPhaseMs() { return testModeActive ? TEST_EMG_PHASE_MS : EMG_PHASE_MS; }
 function rtPhaseMs() { return testModeActive ? TEST_RT_PHASE_MS : RT_PHASE_MS; }
@@ -137,12 +137,18 @@ window.addEventListener('load', () => {
   // Keep the calibration card's duration line honest when the test toggle flips.
   const elTestModeCb = document.getElementById('test-mode');
   const elDurationVal = document.getElementById('session-duration-val');
+  const elTestModeDescription = document.getElementById('test-mode-description');
+  if (elTestModeDescription) {
+    elTestModeDescription.textContent = `Test session — bench dry-run (${TEST_EMG_PHASE_MS / 60000} min EMG + ${TEST_RT_PHASE_MS / 60000} min RT per condition; CSV stamped TEST)`;
+  }
   if (elTestModeCb && elDurationVal) {
-    elTestModeCb.addEventListener('change', () => {
-      elDurationVal.textContent = elTestModeCb.checked
-        ? '5 min (2.5 EMG + 2.5 reaction-time) — TEST'
-        : '17 min (10 EMG + 7 reaction-time)';
-    });
+    const updateDurationLabel = () => {
+      const emgMs = elTestModeCb.checked ? TEST_EMG_PHASE_MS : EMG_PHASE_MS;
+      const rtMs = elTestModeCb.checked ? TEST_RT_PHASE_MS : RT_PHASE_MS;
+      elDurationVal.textContent = `${(emgMs + rtMs) / 60000} min (${emgMs / 60000} EMG + ${rtMs / 60000} reaction-time)${elTestModeCb.checked ? ' — TEST' : ''}`;
+    };
+    elTestModeCb.addEventListener('change', updateDurationLabel);
+    updateDurationLabel();
   }
   // Connect to the LSL marker bridge (best-effort; the task runs fine without it).
   if (window.LSLMarkers) LSLMarkers.connect({ logger: (m) => logToConsole('LSL', m) });
@@ -219,6 +225,7 @@ function hideNirAlert() {
 
 /** Temperature updates: refresh the monitor and, if paused, watch for recovery. */
 function onDeviceTemp(tempC) {
+  if (sessionActive && Number.isFinite(tempC)) recordTemperature('TEMPERATURE', tempC);
   updateTempMonitor(tempC);
   if (pausedForThermal && !resumingThermal && tempC <= RESUME_TEMP_C) {
     resumeAfterThermal();
@@ -241,6 +248,7 @@ function onDeviceStop(reason) {
 function handleThermalShutdown(reason) {
   if (!runPhase) return; // not inside an active phase
   pausedForThermal = true;
+  recordTemperature('THERMAL_PAUSE');
   pausedPhase = runPhase;
   pausedRemainingMs = Math.max(0, phaseDurationMs - (Date.now() - phaseStartMs));
 
@@ -292,6 +300,7 @@ async function resumeAfterThermal() {
     const remaining = pausedRemainingMs;
     const phase = pausedPhase;
     pausedForThermal = false;
+    recordTemperature('THERMAL_RESUME');
     resumingThermal = false;
     logToConsole('SYSTEM', `Resumed ${phase} phase (${Math.round(remaining / 1000)}s remaining).`);
 
@@ -580,6 +589,16 @@ function startTrial() {
     testMode: testModeActive,
     runs: []
   };
+  const temperatureDebug = document.getElementById('temperature-debug');
+  temperatureDebug.disabled = true;
+  currentSessionData.temperatureLogging = temperatureDebug.checked;
+  currentSessionData.temperatureLog = [];
+  temperatureStartPerfMs = performance.now();
+  temperatureLastSaveMs = temperatureStartPerfMs;
+  recordTemperature('SESSION_START', null, currentSessionData.startTime);
+  document.getElementById('temperature-log-status').textContent = temperatureDebug.checked
+    ? 'Recording — waiting for temperature readings.' : 'Temperature logging is off for this session.';
+  persistProgress();
 
   // Lock configuration inputs
   elParticipantId.disabled = true;
@@ -603,6 +622,42 @@ function startTrial() {
  */
 function currentTempC() {
   return (window.ArduinoLink && typeof ArduinoLink.getTemp === 'function') ? ArduinoLink.getTemp() : null;
+}
+
+// Wall time enables cross-software alignment; monotonic elapsed time exposes clock adjustments.
+let temperatureStartPerfMs = 0;
+let temperatureLastSaveMs = 0;
+function recordTemperature(event, tempC = null, unixMs = Date.now()) {
+  if (!currentSessionData.temperatureLogging) return;
+  const perfMs = performance.now();
+  currentSessionData.temperatureLog.push({
+    unixMs,
+    elapsedMs: Math.round((perfMs - temperatureStartPerfMs) * 1000) / 1000,
+    event,
+    tempC,
+    runIndex: currentRunIndex + 1,
+    condition: sessionConditions[currentRunIndex] || '',
+    phase: inPausePhase ? 'REST' : (runPhase || 'TRANSITION'),
+    thermalPaused: pausedForThermal
+  });
+  if (event === 'TEMPERATURE') {
+    document.getElementById('temperature-log-status').textContent =
+      `Recording: ${tempC.toFixed(2)} °C at ${new Date(unixMs).toISOString()}`;
+    // Save during silent EMG and rest too, without writing storage for every sample.
+    if (perfMs - temperatureLastSaveMs >= 5000) {
+      temperatureLastSaveMs = perfMs;
+      persistProgress();
+    }
+  }
+}
+
+function finishTemperatureLog(event) {
+  recordTemperature(event, null, currentSessionData.endTime);
+  if (currentSessionData.temperatureLogging) {
+    const count = currentSessionData.temperatureLog.filter(row => row.event === 'TEMPERATURE').length;
+    document.getElementById('temperature-log-status').textContent =
+      `Saved ${count} temperature readings. Download Temperature CSV from history.`;
+  }
 }
 
 /** Format seconds as M:SS for the long (10-17 min) phase countdowns. */
@@ -670,6 +725,7 @@ function startRun() {
  */
 function startEmgPhase() {
   runPhase = 'EMG';
+  recordTemperature('EMG_START');
   awaitingResponse = false;
   logToConsole('SYSTEM', `EMG phase (${(emgPhaseMs()/60000).toFixed(1)} min) — rest, no response needed.`);
   logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'EMG_START', null);
@@ -687,6 +743,7 @@ function startRtPhase() {
   sendMarker('EMG_END');
 
   runPhase = 'RT';
+  recordTemperature('RT_START');
   logToConsole('SYSTEM', `Reaction-time phase (${(rtPhaseMs()/60000).toFixed(1)} min) — respond to each tone with SPACE.`);
   logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'RT_START', null);
   sendMarker('RT_START');
@@ -705,6 +762,7 @@ function runPhaseTimer(durationMs, onDone) {
   phaseStartMs = Date.now();
   phaseDurationMs = durationMs;
   phaseOnDone = onDone;
+  elStatsTimeLeft.textContent = fmtMMSS(durationMs / 1000);
   sessionTimer = setInterval(phaseTick, 200);
 }
 
@@ -847,6 +905,7 @@ function endRun() {
  */
 function startPausePhase() {
   inPausePhase = true;
+  recordTemperature('REST_START');
   clearTimeout(stimulusTimer);
   clearTimeout(responseTimer);
   
@@ -910,6 +969,7 @@ function startPausePhase() {
 function completeSession() {
   sessionActive = false;
   currentSessionData.endTime = Date.now();
+  finishTemperatureLog('SESSION_END');
 
   // Belt-and-suspenders: make sure the board is stopped at session end.
   if (window.ArduinoLink) ArduinoLink.stop();
@@ -955,6 +1015,8 @@ function completeSession() {
  */
 function abortTrial(reason) {
   if (!sessionActive) return;
+  currentSessionData.endTime = Date.now();
+  finishTemperatureLog(`SESSION_ABORTED_${reason}`);
 
   clearInterval(sessionTimer);
   clearTimeout(stimulusTimer);
@@ -967,8 +1029,6 @@ function abortTrial(reason) {
   runPhase = null;
   pausedForThermal = false;
   resumingThermal = false;
-
-  currentSessionData.endTime = Date.now();
 
   // If aborted during an active run, log the abort in the run
   if (currentTrialData && currentTrialData.logs) {
@@ -1007,6 +1067,7 @@ function resetControlInterface() {
   elBtnStart.disabled = false;
   const elTestModeReset = document.getElementById('test-mode');
   if (elTestModeReset) elTestModeReset.disabled = false;
+  document.getElementById('temperature-debug').disabled = false;
   elBtnAbort.disabled = true;
 
   elStatsTimeLeft.textContent = '40.0s';
@@ -1051,6 +1112,7 @@ function persistProgress() {
   if (!sessionActive || !currentSessionData.participantId) return;
   try {
     const snapshot = {
+      ...currentSessionData,
       participantId: currentSessionData.participantId,
       sessionId: currentSessionData.sessionId,
       startTime: currentSessionData.startTime,
@@ -1107,6 +1169,13 @@ function loadRunsHistory() {
       <button class="btn-download-run" onclick="downloadCSV('${key}')">CSV</button>
     `;
     elRunsHistory.appendChild(item);
+    if (data.temperatureLogging && data.temperatureLog) {
+      const button = document.createElement('button');
+      button.className = 'btn-download-run';
+      button.textContent = 'Temperature CSV';
+      button.addEventListener('click', () => downloadTemperatureCSV(key));
+      item.appendChild(button);
+    }
   });
 
   if (!itemsFound) {
@@ -1136,6 +1205,39 @@ function clearAllHistory() {
 /**
  * @brief Exports trial data structure as a downloadable CSV.
  */
+function temperatureCSV(data) {
+  const cell = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
+  const rows = [[
+    'ParticipantID', 'SessionID', 'TestMode', 'TimestampUTC', 'UnixTimeMs',
+    'ElapsedMonotonicMs', 'Event', 'TemperatureC', 'RunIndex', 'Condition',
+    'Phase', 'ThermalPaused', 'TimestampSource'
+  ]];
+  for (const row of data.temperatureLog || []) {
+    rows.push([
+      data.participantId, data.sessionId, !!data.testMode,
+      new Date(row.unixMs).toISOString(), row.unixMs, row.elapsedMs,
+      row.event, row.tempC, row.runIndex, row.condition, row.phase,
+      row.thermalPaused, 'computer_receive_time'
+    ]);
+  }
+  return rows.map(row => row.map(cell).join(',')).join('\r\n') + '\r\n';
+}
+
+function downloadTemperatureCSV(storageKey) {
+  const data = JSON.parse(localStorage.getItem(storageKey));
+  if (!data || !data.temperatureLogging) return;
+  const blob = new Blob([temperatureCSV(data)], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  const clean = value => String(value).replace(/[^a-z0-9]/gi, '_').toLowerCase();
+  link.href = url;
+  link.download = `tpbm_temperature_${clean(data.participantId)}_${clean(data.sessionId)}_${data.startTime}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 window.downloadCSV = function(storageKey) {
   const data = JSON.parse(localStorage.getItem(storageKey));
   if (!data) return;
