@@ -116,3 +116,31 @@ automatic). No code changes needed.
   dashboard is using it.
 - **Firewall:** everything is `localhost`, so no inbound firewall rule is needed
   as long as the bridge, browser, and NIC2 are all on this one PC.
+
+## Temperature debug export
+
+Before starting, tick **Debug: record temperature with computer UTC time**.
+The choice is locked for that session. Incoming device readings are recorded
+through all three conditions, rest breaks, and thermal pauses until completion
+or manual abort. Afterward, click **Temperature CSV** beside that session in
+history. Logs remain available after reloading the page. Existing sessions
+without this option have no temperature export.
+
+The CSV contains `TimestampUTC` (ISO 8601 with `Z`, UTC) and `UnixTimeMs`
+(milliseconds since the Unix epoch). Align another tool's absolute timestamps
+to these columns, converting its timezone/units as needed. Timestamps are the
+computer's receipt time, not the sensor's acquisition time: serial and browser
+delays are included. Separate computers must have synchronized clocks; this
+feature does not synchronize clocks or infer the origin of another tool's
+relative timestamps. `ElapsedMonotonicMs` measures elapsed time without wall-clock
+corrections and can help identify changes to the computer clock during recording.
+
+The firmware normally emits a reading about once per second. No readings are
+invented during disconnection or missing telemetry. Start, phase, rest, thermal
+pause/resume, end, and abort markers have blank temperature cells. The export
+also includes condition, run, phase, and test-mode fields. Progress is saved
+approximately every five seconds when readings arrive and on completion/abort;
+an unexpected page close may lose the most recent unsaved readings and will not
+produce an end marker. Browser storage must remain available for saved exports.
+
+Developer check: `node APP/tests/temperature-log.test.cjs`.
