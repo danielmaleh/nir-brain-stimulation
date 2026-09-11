@@ -53,8 +53,15 @@
         <div class="input-group" style="margin-top: 0.5rem;">
           <label for="test-mode" style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; text-transform: none;">
             <input type="checkbox" id="test-mode" style="width: auto; margin: 0;">
-            <span>Test session — bench dry-run (2.5 min EMG + 2.5 min RT per condition; CSV stamped TEST)</span>
+            <span id="test-mode-description">Test session — bench dry-run (CSV stamped TEST)</span>
           </label>
+        </div>
+        <div class="input-group" style="margin-top: 0.5rem;">
+          <label for="temperature-debug" style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; text-transform: none;">
+            <input type="checkbox" id="temperature-debug" style="width: auto; margin: 0;">
+            <span>Debug: record temperature with computer UTC time</span>
+          </label>
+          <small id="temperature-log-status" aria-live="polite">Download Temperature CSV from history after completion or abort.</small>
         </div>
       </section>
 
@@ -197,6 +204,6 @@
   <script src="serial_lock.js?v=1"></script>
   <script src="lsl_markers.js?v=1"></script>
   <script src="arduino_link.js?v=6"></script>
-  <script src="app.js?v=12"></script>
+  <script src="app.js?v=14"></script>
 </body>
 </html>
