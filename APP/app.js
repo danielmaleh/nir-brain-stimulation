@@ -29,6 +29,8 @@ let pausedForThermal = false;   // true while the session is frozen waiting for 
 let resumingThermal = false;    // guards the async resume so it runs once
 let pausedPhase = null;         // which phase to resume ('EMG' | 'RT')
 let pausedRemainingMs = 0;      // time left in that phase when it was paused
+let pausedOnDone = null;        // the frozen timer's continuation (phase half, next phase, or cooling end)
+let pausedInCooling = false;    // the trip landed inside a scheduled cooling break
 // Phase-timer bookkeeping (module-level so a thermal pause can freeze/resume it)
 let phaseStartMs = 0;
 let phaseDurationMs = 0;
@@ -56,9 +58,26 @@ const TEST_RT_PHASE_MS = 5 * 60 * 1000;   // 5 minutes
 let testModeActive = false;        // latched from the checkbox when a session starts
 function emgPhaseMs() { return testModeActive ? TEST_EMG_PHASE_MS : EMG_PHASE_MS; }
 function rtPhaseMs() { return testModeActive ? TEST_RT_PHASE_MS : RT_PHASE_MS; }
+
+// Mid-phase cooling breaks (REAL sessions only): each phase is split at its
+// midpoint and stimulation is switched OFF for a fixed cool-down, so skin
+// temperature cannot ramp for 10 (or 7) unbroken minutes. Bench measurements
+// (2026-08) showed ~1.5-2.5 C/min climb at protocol duty with no plateau, so
+// unbroken phases would cross the 40 C cutoff mid-session. The break is marked
+// COOL_START/COOL_END (42/43) - deliberately distinct from SESSION_PAUSE/
+// RESUME (40/41), which mean an EMERGENCY thermal shutdown - so analysis can
+// separate scheduled pacing from safety events. Delivered light energy per
+// condition is unchanged (same total on-time); only the pacing changes.
+// Test sessions run their phases unbroken.
+const COOLING_BREAK_MS = 90000;    // 1.5 minutes, stimulation off
+let inCoolingBreak = false;        // true while a scheduled cooling break runs
+function phaseSplit() { return !testModeActive; }
 function sessionShape() {
   const m = (ms) => (ms / 60000).toFixed(1).replace(/\.0$/, '');
-  return `${m(emgPhaseMs() + rtPhaseMs())} min: ${m(emgPhaseMs())} EMG + ${m(rtPhaseMs())} RT`;
+  const base = `${m(emgPhaseMs())} EMG + ${m(rtPhaseMs())} RT`;
+  if (!phaseSplit()) return `${m(emgPhaseMs() + rtPhaseMs())} min: ${base}`;
+  const total = emgPhaseMs() + rtPhaseMs() + 2 * COOLING_BREAK_MS;
+  return `${m(total)} min: ${base}, each phase split by a ${m(COOLING_BREAK_MS)} min cooling break`;
 }
 const RESUME_TEMP_C = 37.5;        // after a thermal shutdown, auto-resume once temp cools to this
 const BASE_DELAY_MS = 5000;        // 5 seconds
@@ -145,7 +164,13 @@ window.addEventListener('load', () => {
     const updateDurationLabel = () => {
       const emgMs = elTestModeCb.checked ? TEST_EMG_PHASE_MS : EMG_PHASE_MS;
       const rtMs = elTestModeCb.checked ? TEST_RT_PHASE_MS : RT_PHASE_MS;
-      elDurationVal.textContent = `${(emgMs + rtMs) / 60000} min (${emgMs / 60000} EMG + ${rtMs / 60000} reaction-time)${elTestModeCb.checked ? ' — TEST' : ''}`;
+      if (elTestModeCb.checked) {
+        // Test sessions run their phases unbroken.
+        elDurationVal.textContent = `${(emgMs + rtMs) / 60000} min (${emgMs / 60000} EMG + ${rtMs / 60000} reaction-time) — TEST`;
+      } else {
+        const total = (emgMs + rtMs + 2 * COOLING_BREAK_MS) / 60000;
+        elDurationVal.textContent = `${total} min (${emgMs / 60000} EMG + ${rtMs / 60000} reaction-time, each split by a ${COOLING_BREAK_MS / 60000} min cooling break)`;
+      }
     };
     elTestModeCb.addEventListener('change', updateDurationLabel);
     updateDurationLabel();
@@ -251,6 +276,11 @@ function handleThermalShutdown(reason) {
   recordTemperature('THERMAL_PAUSE');
   pausedPhase = runPhase;
   pausedRemainingMs = Math.max(0, phaseDurationMs - (Date.now() - phaseStartMs));
+  // With split phases the timer's continuation differs per segment (first half ->
+  // cooling break, cooling -> second half, second half -> next phase), so resume
+  // must run the FROZEN continuation, not a hardcoded next phase.
+  pausedOnDone = phaseOnDone;
+  pausedInCooling = inCoolingBreak;
 
   clearInterval(sessionTimer);
   clearTimeout(stimulusTimer);
@@ -304,18 +334,30 @@ async function resumeAfterThermal() {
     resumingThermal = false;
     logToConsole('SYSTEM', `Resumed ${phase} phase (${Math.round(remaining / 1000)}s remaining).`);
 
-    if (phase === 'EMG') {
+    const onDone = pausedOnDone;
+    pausedOnDone = null;
+    if (pausedInCooling) {
+      // The trip landed inside a scheduled cooling break (possible only if the
+      // temperature was still over the limit right after stimulation stopped).
+      // Stimulation is already back on from the reset above; finish the break's
+      // remaining time and let its own completion handler carry on. Rare enough
+      // that a slightly warmer break beats more special-case machinery.
+      pausedInCooling = false;
+      showParticipantMessage('Short Break',
+        'A short scheduled break.<br>Please stay still and keep resting — the session continues automatically.');
+      runPhaseTimer(remaining, onDone);
+    } else if (phase === 'EMG') {
       runPhase = 'EMG';
       showParticipantMessage('EMG Recording',
         'Please rest with your eyes closed.<br>No response is needed during this phase.');
-      runPhaseTimer(remaining, startRtPhase);
+      runPhaseTimer(remaining, onDone);
     } else {
       runPhase = 'RT';
       hideParticipantMessage();
       elChartOverlay.classList.remove('hidden');
       lastEventPerfTime = performance.now();
       scheduleNextStimulus();
-      runPhaseTimer(remaining, endRun);
+      runPhaseTimer(remaining, onDone);
     }
   }, 2500);
 }
@@ -732,7 +774,11 @@ function startEmgPhase() {
   sendMarker('EMG_START');
   showParticipantMessage('EMG Recording',
     'Please rest with your eyes closed.<br>No response is needed during this phase.<br>The reaction-time task begins afterward.');
-  runPhaseTimer(emgPhaseMs(), startRtPhase);
+  if (phaseSplit()) {
+    runPhaseTimer(emgPhaseMs() / 2, () => coolingBreak(resumeEmgSecondHalf));
+  } else {
+    runPhaseTimer(emgPhaseMs(), startRtPhase);
+  }
 }
 
 /**
@@ -752,7 +798,56 @@ function startRtPhase() {
   elChartOverlay.classList.remove('hidden');
   lastEventPerfTime = performance.now();
   scheduleNextStimulus();
-  runPhaseTimer(rtPhaseMs(), endRun);
+  if (phaseSplit()) {
+    runPhaseTimer(rtPhaseMs() / 2, () => coolingBreak(resumeRtSecondHalf));
+  } else {
+    runPhaseTimer(rtPhaseMs(), endRun);
+  }
+}
+
+/**
+ * @brief Scheduled mid-phase cooling break (real sessions only): stimulation
+ *        OFF for COOLING_BREAK_MS, then back on for the phase's second half.
+ *        The device layer emits STIM_OFF/HEAT_OFF and NIR_ON/HEAT_ON around it,
+ *        so the recording carries physical confirmation of the off-window too.
+ */
+function coolingBreak(onDone) {
+  inCoolingBreak = true;
+  recordTemperature('COOL_START');
+  clearTimeout(stimulusTimer);
+  clearTimeout(responseTimer);
+  awaitingResponse = false;
+  if (window.ArduinoLink) ArduinoLink.stop();
+  logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'COOL_START', null);
+  sendMarker('COOL_START');
+  logToConsole('SYSTEM', `Mid-${runPhase} cooling break (${COOLING_BREAK_MS / 60000} min) — stimulation off.`);
+  showParticipantMessage('Short Break',
+    'A short scheduled break.<br>Please stay still and keep resting — the session continues automatically.');
+  runPhaseTimer(COOLING_BREAK_MS, async () => {
+    inCoolingBreak = false;
+    recordTemperature('COOL_END');
+    logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'COOL_END', null);
+    sendMarker('COOL_END');
+    if (window.ArduinoLink) await ArduinoLink.runCondition(sessionConditions[currentRunIndex]);
+    logToConsole('SYSTEM', `Cooling break over — stimulation back on, ${runPhase} phase resumes.`);
+    onDone();
+  });
+}
+
+/** Second half of the EMG phase, after its cooling break. */
+function resumeEmgSecondHalf() {
+  showParticipantMessage('EMG Recording',
+    'Please rest with your eyes closed.<br>No response is needed during this phase.');
+  runPhaseTimer(emgPhaseMs() / 2, startRtPhase);
+}
+
+/** Second half of the RT phase, after its cooling break. */
+function resumeRtSecondHalf() {
+  hideParticipantMessage();
+  elChartOverlay.classList.remove('hidden');
+  lastEventPerfTime = performance.now();
+  scheduleNextStimulus();
+  runPhaseTimer(rtPhaseMs() / 2, endRun);
 }
 
 /** Drives the phase countdown display (M:SS) and fires onDone when the phase elapses.

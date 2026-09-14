@@ -38,9 +38,9 @@ The device works standalone over USB; no laptop-side runtime is required beyond 
 | **Participants** | 20 healthy adults, one session each |
 | **Design** | Within-subject; the three conditions run in a per-participant randomised order |
 | **Conditions** | `Heating Control` · `10 Hz NIR` · `40 Hz NIR` |
-| **Per condition** | 17 min — a 10-min silent EMG-baseline phase, then a 7-min reaction-time phase. Stimulation is on throughout both phases. |
+| **Per condition** | 20 min — a 10-min silent EMG-baseline phase, then a 7-min reaction-time phase, each split at its midpoint by a 1.5-min cooling break (stimulation off). Stimulation is on for all 17 task minutes. |
 | **Rest between conditions** | Configurable, default 3 min |
-| **Total in-protocol time** | ~57 min per participant, plus EEG capping and setup |
+| **Total in-protocol time** | ~66 min per participant, plus EEG capping and setup |
 | **Measures** | Continuous EEG (Enobio 32 via NIC2), wrist EMG on EXG channels, auditory reaction time |
 
 ### Reaction-time task
@@ -57,7 +57,7 @@ A 600 Hz sine tone (10 ms attack, 150 ms decay, generated in the Web Audio API) 
 | Pulse frequencies | 10.00 Hz and 40.00 Hz (Timer1 CTC, prescaler 64) |
 | Duty cycle | 50 % |
 | Illumination area | ~4 cm² |
-| Exposure per condition | 17 min (1020 s) continuous |
+| Exposure per condition | 17 min (1020 s) light-on, delivered as 4 blocks separated by two 1.5-min cooling breaks (same total energy; pacing keeps skin temperature down) |
 | Skin-contact temperature | Hard latching cut-off at **40.0 °C** |
 | Heating-control set point | 37.5 °C default, PID-regulated, heater duty capped at 20 % |
 
@@ -191,6 +191,8 @@ Markers are integers because NIC2 does not record string markers. The codebook i
 | `35` | HEAT_OFF | — | `HEAT_OFF` | device | Heater element off |
 | `40` | SESSION_PAUSE | — | `SESSION_PAUSE` | task page | Session frozen by a thermal shutdown (> 40 °C); pairs with `99` |
 | `41` | SESSION_RESUME | — | `SESSION_RESUME` | task page | Session resumed after the temperature recovered to ≤ 37.5 °C |
+| `42` | COOL_START | — | `COOL_START` | task page | Scheduled mid-phase cooling break begins (stimulation off). Planned pacing — not a safety event |
+| `43` | COOL_END | — | `COOL_END` | task page | Scheduled cooling break over; stimulation back on, phase second half resumes |
 | `99` | SAFETY_TRIP | — | `SAFETY_TRIP` | device | 40 °C skin-temperature cut-off latched; all stimulation force-stopped |
 
 Condition-bearing events are encoded as **base code + condition offset** (`Heating` = 0, `10Hz` = 1, `40Hz` = 2), which is why `30` is deliberately unused — the heating control emits `HEAT_ON` (34) instead of a `NIR_ON`. The arithmetic can still *produce* 30 (`NIR_ON` + Heating), which is a contradiction, so the bridge rejects it as invalid rather than writing it. A `cond=` that is missing or misspelt is likewise rejected, never defaulted to offset 0 — silently relabelling a 10 Hz run as the heating arm is unrecoverable after the fact. "Task page" codes originate in the browser app; "device" codes are derived from Arduino serial telemetry, so `11` (the task says stimulation started) and `31` (the device confirms the LED is pulsing) are independent confirmations.
