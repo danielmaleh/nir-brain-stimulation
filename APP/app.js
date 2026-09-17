@@ -11,7 +11,7 @@
  *   (no tones/clicks) then a 7-min reaction-time phase. Stimulation runs throughout.
  * - Stimulus delay: 5.0 seconds base + [0.0, 2.0] seconds random jitter after the last press or miss.
  * - Response window: 2.0 seconds after each tone; if no press arrives it is logged as
- *   NO_RESPONSE and the run continues to the next stimulus (never stalls on a missed press).
+ *   OMISSION and the run continues to the next stimulus (never stalls on a missed press).
  * - Keypress: Space bar (high-precision event capture phase, debounced).
  * - Feedback sound: Programmatically generated non-alarming 600 Hz tone.
  */
@@ -38,7 +38,7 @@ let phaseOnDone = null;
 let pauseTimer = null;          // Timer for rest phase countdowns
 let sessionTimer = null;
 let stimulusTimer = null;
-let responseTimer = null;       // Response-window timer; fires a NO_RESPONSE miss if no press arrives in time
+let responseTimer = null;       // Response-window timer; fires an OMISSION miss if no press arrives in time
 
 // Timing boundaries
 // Each session (condition) is 17 min: a 10-min silent EMG baseline phase followed
@@ -82,7 +82,7 @@ function sessionShape() {
 const RESUME_TEMP_C = 37.5;        // after a thermal shutdown, auto-resume once temp cools to this
 const BASE_DELAY_MS = 5000;        // 5 seconds
 const JITTER_MAX_MS = 2000;        // 2 second jitter range (0 to 2s)
-const RESPONSE_WINDOW_MS = 2000;   // Wait this long for a press after a tone; no press -> NO_RESPONSE and the run continues
+const RESPONSE_WINDOW_MS = 2000;   // Wait this long for a press after a tone; no press -> OMISSION and the run continues
 const AUDIO_ATTACK_S = 0.01;       // 10ms tone attack; audible onset is offset by this
 const MAX_CONSOLE_LINES = 500;     // cap console DOM growth during long sessions
 
@@ -881,7 +881,7 @@ function phaseTick() {
 }
 
 /**
- * @brief Schedules the next sound stimulus at exactly 5s + random [0, 1s] jitter.
+ * @brief Schedules the next sound stimulus at exactly 5s + random [0, 2s] jitter.
  */
 function scheduleNextStimulus() {
   if (!trialRunning || pausedForThermal || inCoolingBreak) return;
@@ -935,7 +935,7 @@ function triggerStimulus() {
 
 /**
  * @brief Fires when the response window closes with no keypress. Tags the tone as a
- *        miss (NO_RESPONSE) and schedules the next stimulus so the run keeps going.
+ *        miss (OMISSION) and schedules the next stimulus so the run keeps going.
  */
 function handleMissedResponse() {
   if (!trialRunning || !awaitingResponse || inCoolingBreak) return;
@@ -1178,7 +1178,7 @@ function resetControlInterface() {
   document.getElementById('temperature-debug').disabled = false;
   elBtnAbort.disabled = true;
 
-  elStatsTimeLeft.textContent = '40.0s';
+  elStatsTimeLeft.textContent = '--:--';
   elParticipantArea.classList.remove('active-trial');
   
   // If the session was completed or aborted, we keep the final overlay message visible.
@@ -1489,7 +1489,7 @@ function plotDataPoints() {
   const displayHeight = svgHeight - (marginY * 2); // 110px
 
   // Select only keypress responses and premature hits for plotting
-  const graphablePoints = points.filter(p => p.eventType === 'RESPONSE' || p.eventType === 'PREMATURE_PRESS');
+  const graphablePoints = points.filter(p => p.eventType === 'RESPONSE' || p.eventType === 'FALSE_ALARM');
   if (graphablePoints.length === 0) return;
 
   elChartDatapoints.innerHTML = '';
