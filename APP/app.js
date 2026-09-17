@@ -424,8 +424,9 @@ function handleKeyPress(e) {
     return;
   }
 
-  // Spacebar only counts during the reaction-time phase; ignored during EMG or a thermal pause.
-  if (runPhase !== 'RT' || pausedForThermal) return;
+  // Spacebar only counts during the reaction-time phase; ignored during EMG, a cooling
+  // break (no task, stimulation off) or a thermal pause.
+  if (runPhase !== 'RT' || pausedForThermal || inCoolingBreak) return;
 
   // Handle keypress inside active trial
   const timeOffsetSec = (pressTime - trialStartPerfTime) / 1000;
@@ -824,12 +825,14 @@ function coolingBreak(onDone) {
   showParticipantMessage('Short Break',
     'A short scheduled break.<br>Please stay still and keep resting — the session continues automatically.');
   runPhaseTimer(COOLING_BREAK_MS, async () => {
-    inCoolingBreak = false;
     recordTemperature('COOL_END');
     logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'COOL_END', null);
     sendMarker('COOL_END');
     if (window.ArduinoLink) await ArduinoLink.runCondition(sessionConditions[currentRunIndex]);
     logToConsole('SYSTEM', `Cooling break over — stimulation back on, ${runPhase} phase resumes.`);
+    // Keep task events blocked until the second half actually starts: restarting the
+    // device can take seconds, and a press during that restart is not a task response.
+    inCoolingBreak = false;
     onDone();
   });
 }
@@ -845,6 +848,11 @@ function resumeEmgSecondHalf() {
 function resumeRtSecondHalf() {
   hideParticipantMessage();
   elChartOverlay.classList.remove('hidden');
+  // Start from a clean slate so no timer left over from before the break can run a
+  // second tone chain alongside this one.
+  clearTimeout(stimulusTimer);
+  clearTimeout(responseTimer);
+  awaitingResponse = false;
   lastEventPerfTime = performance.now();
   scheduleNextStimulus();
   runPhaseTimer(rtPhaseMs() / 2, endRun);
@@ -876,7 +884,7 @@ function phaseTick() {
  * @brief Schedules the next sound stimulus at exactly 5s + random [0, 1s] jitter.
  */
 function scheduleNextStimulus() {
-  if (!trialRunning || pausedForThermal) return;
+  if (!trialRunning || pausedForThermal || inCoolingBreak) return;
 
   const jitter = Math.random() * JITTER_MAX_MS;
   const totalDelay = BASE_DELAY_MS + jitter;
@@ -886,6 +894,8 @@ function scheduleNextStimulus() {
   const timeSpentSinceLastPress = now - lastEventPerfTime;
   const timeRemaining = Math.max(0, totalDelay - timeSpentSinceLastPress);
 
+  // Replace, never add: a still-pending tone would run a second chain alongside this one.
+  clearTimeout(stimulusTimer);
   stimulusTimer = setTimeout(() => {
     triggerStimulus();
   }, timeRemaining);
@@ -895,7 +905,7 @@ function scheduleNextStimulus() {
  * @brief Triggers the stimulus tone and logs the start point.
  */
 function triggerStimulus() {
-  if (!trialRunning || runPhase !== 'RT' || pausedForThermal) return;
+  if (!trialRunning || runPhase !== 'RT' || pausedForThermal || inCoolingBreak) return;
 
   initAudio();
   // Schedule ~20ms ahead so the tone starts glitch-free on a Web Audio buffer boundary.
@@ -928,7 +938,7 @@ function triggerStimulus() {
  *        miss (NO_RESPONSE) and schedules the next stimulus so the run keeps going.
  */
 function handleMissedResponse() {
-  if (!trialRunning || !awaitingResponse) return;
+  if (!trialRunning || !awaitingResponse || inCoolingBreak) return;
   awaitingResponse = false;
 
   const missPerfTime = performance.now();
@@ -1124,6 +1134,9 @@ function abortTrial(reason) {
   runPhase = null;
   pausedForThermal = false;
   resumingThermal = false;
+  // An abort mid-break never reaches COOL_END; a stale flag would silence the next
+  // session's task (test sessions have no break to clear it).
+  inCoolingBreak = false;
 
   // If aborted during an active run, log the abort in the run
   if (currentTrialData && currentTrialData.logs) {
