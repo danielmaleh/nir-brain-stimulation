@@ -11,7 +11,7 @@
  *   (no tones/clicks) then a 7-min reaction-time phase. Stimulation runs throughout.
  * - Stimulus delay: 5.0 seconds base + [0.0, 2.0] seconds random jitter after the last press or miss.
  * - Response window: 2.0 seconds after each tone; if no press arrives it is logged as
- *   NO_RESPONSE and the run continues to the next stimulus (never stalls on a missed press).
+ *   OMISSION and the run continues to the next stimulus (never stalls on a missed press).
  * - Keypress: Space bar (high-precision event capture phase, debounced).
  * - Feedback sound: Programmatically generated non-alarming 600 Hz tone.
  */
@@ -38,7 +38,7 @@ let phaseOnDone = null;
 let pauseTimer = null;          // Timer for rest phase countdowns
 let sessionTimer = null;
 let stimulusTimer = null;
-let responseTimer = null;       // Response-window timer; fires a NO_RESPONSE miss if no press arrives in time
+let responseTimer = null;       // Response-window timer; fires an OMISSION miss if no press arrives in time
 
 // Timing boundaries
 // Each session (condition) is 17 min: a 10-min silent EMG baseline phase followed
@@ -82,7 +82,7 @@ function sessionShape() {
 const RESUME_TEMP_C = 37.5;        // after a thermal shutdown, auto-resume once temp cools to this
 const BASE_DELAY_MS = 5000;        // 5 seconds
 const JITTER_MAX_MS = 2000;        // 2 second jitter range (0 to 2s)
-const RESPONSE_WINDOW_MS = 2000;   // Wait this long for a press after a tone; no press -> NO_RESPONSE and the run continues
+const RESPONSE_WINDOW_MS = 2000;   // Wait this long for a press after a tone; no press -> OMISSION and the run continues
 const AUDIO_ATTACK_S = 0.01;       // 10ms tone attack; audible onset is offset by this
 const MAX_CONSOLE_LINES = 500;     // cap console DOM growth during long sessions
 
@@ -424,8 +424,9 @@ function handleKeyPress(e) {
     return;
   }
 
-  // Spacebar only counts during the reaction-time phase; ignored during EMG or a thermal pause.
-  if (runPhase !== 'RT' || pausedForThermal) return;
+  // Spacebar only counts during the reaction-time phase; ignored during EMG, a cooling
+  // break (no task, stimulation off) or a thermal pause.
+  if (runPhase !== 'RT' || pausedForThermal || inCoolingBreak) return;
 
   // Handle keypress inside active trial
   const timeOffsetSec = (pressTime - trialStartPerfTime) / 1000;
@@ -824,12 +825,14 @@ function coolingBreak(onDone) {
   showParticipantMessage('Short Break',
     'A short scheduled break.<br>Please stay still and keep resting — the session continues automatically.');
   runPhaseTimer(COOLING_BREAK_MS, async () => {
-    inCoolingBreak = false;
     recordTemperature('COOL_END');
     logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'COOL_END', null);
     sendMarker('COOL_END');
     if (window.ArduinoLink) await ArduinoLink.runCondition(sessionConditions[currentRunIndex]);
     logToConsole('SYSTEM', `Cooling break over — stimulation back on, ${runPhase} phase resumes.`);
+    // Keep task events blocked until the second half actually starts: restarting the
+    // device can take seconds, and a press during that restart is not a task response.
+    inCoolingBreak = false;
     onDone();
   });
 }
@@ -845,6 +848,11 @@ function resumeEmgSecondHalf() {
 function resumeRtSecondHalf() {
   hideParticipantMessage();
   elChartOverlay.classList.remove('hidden');
+  // Start from a clean slate so no timer left over from before the break can run a
+  // second tone chain alongside this one.
+  clearTimeout(stimulusTimer);
+  clearTimeout(responseTimer);
+  awaitingResponse = false;
   lastEventPerfTime = performance.now();
   scheduleNextStimulus();
   runPhaseTimer(rtPhaseMs() / 2, endRun);
@@ -873,10 +881,10 @@ function phaseTick() {
 }
 
 /**
- * @brief Schedules the next sound stimulus at exactly 5s + random [0, 1s] jitter.
+ * @brief Schedules the next sound stimulus at exactly 5s + random [0, 2s] jitter.
  */
 function scheduleNextStimulus() {
-  if (!trialRunning || pausedForThermal) return;
+  if (!trialRunning || pausedForThermal || inCoolingBreak) return;
 
   const jitter = Math.random() * JITTER_MAX_MS;
   const totalDelay = BASE_DELAY_MS + jitter;
@@ -886,6 +894,8 @@ function scheduleNextStimulus() {
   const timeSpentSinceLastPress = now - lastEventPerfTime;
   const timeRemaining = Math.max(0, totalDelay - timeSpentSinceLastPress);
 
+  // Replace, never add: a still-pending tone would run a second chain alongside this one.
+  clearTimeout(stimulusTimer);
   stimulusTimer = setTimeout(() => {
     triggerStimulus();
   }, timeRemaining);
@@ -895,7 +905,7 @@ function scheduleNextStimulus() {
  * @brief Triggers the stimulus tone and logs the start point.
  */
 function triggerStimulus() {
-  if (!trialRunning || runPhase !== 'RT' || pausedForThermal) return;
+  if (!trialRunning || runPhase !== 'RT' || pausedForThermal || inCoolingBreak) return;
 
   initAudio();
   // Schedule ~20ms ahead so the tone starts glitch-free on a Web Audio buffer boundary.
@@ -925,10 +935,10 @@ function triggerStimulus() {
 
 /**
  * @brief Fires when the response window closes with no keypress. Tags the tone as a
- *        miss (NO_RESPONSE) and schedules the next stimulus so the run keeps going.
+ *        miss (OMISSION) and schedules the next stimulus so the run keeps going.
  */
 function handleMissedResponse() {
-  if (!trialRunning || !awaitingResponse) return;
+  if (!trialRunning || !awaitingResponse || inCoolingBreak) return;
   awaitingResponse = false;
 
   const missPerfTime = performance.now();
@@ -1124,6 +1134,9 @@ function abortTrial(reason) {
   runPhase = null;
   pausedForThermal = false;
   resumingThermal = false;
+  // An abort mid-break never reaches COOL_END; a stale flag would silence the next
+  // session's task (test sessions have no break to clear it).
+  inCoolingBreak = false;
 
   // If aborted during an active run, log the abort in the run
   if (currentTrialData && currentTrialData.logs) {
@@ -1165,7 +1178,7 @@ function resetControlInterface() {
   document.getElementById('temperature-debug').disabled = false;
   elBtnAbort.disabled = true;
 
-  elStatsTimeLeft.textContent = '40.0s';
+  elStatsTimeLeft.textContent = '--:--';
   elParticipantArea.classList.remove('active-trial');
   
   // If the session was completed or aborted, we keep the final overlay message visible.
@@ -1476,7 +1489,7 @@ function plotDataPoints() {
   const displayHeight = svgHeight - (marginY * 2); // 110px
 
   // Select only keypress responses and premature hits for plotting
-  const graphablePoints = points.filter(p => p.eventType === 'RESPONSE' || p.eventType === 'PREMATURE_PRESS');
+  const graphablePoints = points.filter(p => p.eventType === 'RESPONSE' || p.eventType === 'FALSE_ALARM');
   if (graphablePoints.length === 0) return;
 
   elChartDatapoints.innerHTML = '';
