@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../app.js'), 'utf8');
-const names = ['recordTemperature', 'onDeviceTemp', 'finishTemperatureLog', 'temperatureCSV', 'persistProgress', 'abortTrial', 'completeSession'];
+const names = ['recordTemperature', 'onDeviceTemp', 'finishTemperatureLog', 'temperatureCSV', 'persistProgress', 'abortTrial', 'completeSession', 'stopHeaterReplay'];
 const functions = names.map(name => {
   const start = source.indexOf(`function ${name}(`);
   assert.ok(start >= 0);
@@ -22,6 +22,7 @@ const context = vm.createContext({
   currentRunIndex: 0, sessionConditions: ['Heating Control'], runPhase: 'EMG',
   sessionActive: true, trialRunning: false, inPausePhase: false,
   pausedForThermal: false, resumingThermal: false, awaitingResponse: false,
+  inCoolingBreak: false, inPostGap: false, heaterReplayTimer: null,
   currentTrialData: null, sessionTimer: null, stimulusTimer: null, responseTimer: null, pauseTimer: null,
   clearInterval() {}, clearTimeout() {}, setTimeout() {},
   window: {}, console, updateTempMonitor() {}, resumeAfterThermal() {},

@@ -8,10 +8,11 @@ const vm = require('node:vm');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../app.js'), 'utf8');
 
 const constants = ['EMG_PHASE_MS', 'RT_PHASE_MS', 'TEST_EMG_PHASE_MS', 'TEST_RT_PHASE_MS', 'COOLING_BREAK_MS',
-  'RESUME_TEMP_C', 'RESUME_SURFACE_C', 'BASE_DELAY_MS', 'JITTER_MAX_MS', 'RESPONSE_WINDOW_MS', 'AUDIO_ATTACK_S'];
+  'RESUME_TEMP_C', 'RESUME_SURFACE_C', 'POST_GAP_MS', 'HEATER_TARGET_UPDATE_MS', 'BASE_DELAY_MS', 'JITTER_MAX_MS', 'RESPONSE_WINDOW_MS', 'AUDIO_ATTACK_S'];
 const names = ['emgPhaseMs', 'rtPhaseMs', 'phaseSplit', 'handleKeyPress', 'scheduleNextStimulus', 'triggerStimulus',
   'handleMissedResponse', 'startRtPhase', 'coolingBreak', 'resumeRtSecondHalf', 'runPhaseTimer', 'phaseTick',
-  'handleThermalShutdown', 'resumeAfterThermal', 'abortTrial', 'logEvent', 'sendMarker'];
+  'handleThermalShutdown', 'resumeAfterThermal', 'abortTrial', 'logEvent', 'sendMarker',
+  'endRtPhase', 'postGap', 'stopHeaterReplay'];
 const code = constants.map(name => {
   const line = source.match(new RegExp(`^const ${name} = .*$`, 'm'));
   assert.ok(line, `app.js no longer defines ${name}`);
@@ -53,7 +54,8 @@ function makeApp() {
     window: { LSLMarkers: { send: marker => markers.push(marker) }, ArduinoLink: link },
     ArduinoLink: link,
     trialRunning: true, sessionActive: true, testModeActive: false, inPausePhase: false, runPhase: null,
-    inCoolingBreak: false, pausedForThermal: false, resumingThermal: false, pausedPhase: null,
+    inCoolingBreak: false, inPostGap: false, heaterReplayTimer: null, heaterTargetSource: 'none',
+    pausedForThermal: false, resumingThermal: false, pausedPhase: null,
     pausedRemainingMs: 0, pausedOnDone: null, pausedInCooling: false,
     phaseStartMs: 0, phaseDurationMs: 0, phaseOnDone: null,
     sessionTimer: null, stimulusTimer: null, responseTimer: null, pauseTimer: null,

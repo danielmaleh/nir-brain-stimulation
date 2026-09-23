@@ -18,6 +18,8 @@ code,event,condition,source,description
 41,SESSION_RESUME,,task,"Session resumed after the temperature recovered to <=37.5 C (stimulation restarted)."
 42,COOL_START,,task,"Scheduled mid-phase cooling break begins (stimulation off). Planned pacing, NOT a safety event — each real-session phase is split at its midpoint by a 1.5-min break."
 43,COOL_END,,task,"Scheduled cooling break over; stimulation back on and the phase second half resumes."
+44,POST_START,,task,"Stimulation-off post gap begins — the last step of every condition (RT_END precedes it, SESSION_END follows). 1.5 min."
+45,POST_END,,task,"Post gap over; SESSION_END follows."
 29,STIM_OFF,,hardware,"Device stimulation block ended or aborted (NIR/heater off)."
 31,NIR_ON,10 Hz NIR,hardware,"NIR light physically ON — 850 nm pulsed at 10 Hz, 50% duty."
 32,NIR_ON,40 Hz NIR,hardware,"NIR light physically ON — 850 nm pulsed at 40 Hz, 50% duty."

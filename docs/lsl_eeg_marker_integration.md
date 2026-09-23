@@ -119,6 +119,7 @@ reaction-time phase, with stimulation on throughout.
 | `RT_START` / `RT_END` | `22` / `23` | 7-min reaction-time phase start/end | task page |
 | `SESSION_PAUSE` / `SESSION_RESUME` | `40` / `41` | session frozen by a thermal shutdown (>40 °C) / resumed once cooled to ≤37.5 °C | task page |
 | `COOL_START` / `COOL_END` | `42` / `43` | scheduled mid-phase cooling break: stimulation off at each phase midpoint for 1.5 min / back on for the second half (planned pacing, not a safety event) | task page |
+| `POST_START` / `POST_END` | `44` / `45` | stimulation-off post gap ending every condition: 1.5 min after `RT_END`, before `SESSION_END` | task page |
 | `NIR_ON;cond=…` | `31`/`32` | NIR light physically ON (10Hz/40Hz) | device telemetry |
 | `STIM_OFF` | `29` | device stimulation block ends/aborts | device telemetry |
 | `HEAT_ON` / `HEAT_OFF` | `34` / `35` | heater element switches (heating condition) | device telemetry |

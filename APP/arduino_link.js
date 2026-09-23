@@ -49,6 +49,7 @@ window.ArduinoLink = (function () {
   let profileCalibrated = false;
   let latestTempC = null;
   let latestSurfaceEstC = null;   // firmware's estimated skin-surface temperature (TEMP_LOG 4th field)
+  let heaterTargetFn = null;      // () => C; when set, the heating run replays a target instead of the profile
   let buildInfo = null;      // {type: "PROTOCOL"|"BENCH", cutoff} from the boot BUILD line
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -364,8 +365,14 @@ window.ArduinoLink = (function () {
       logFn('⚠ Could not select "' + condName + '" on the device (still on ' + selectedCond + ').');
       return false;
     }
-    // Heating: target baseline skin temp + calibrated NIR rise (delta match).
-    if (target === 0 && profileCalibrated && typeof heatingRiseC === 'number') {
+    // Heating: a session-replay provider (the task page replaying this participant's
+    // NIR device-temperature trajectory) takes precedence over the static profile.
+    const replayTarget = (target === 0 && heaterTargetFn) ? heaterTargetFn() : null;
+    if (target === 0 && typeof replayTarget === 'number' && Number.isFinite(replayTarget)) {
+      await send('H' + replayTarget.toFixed(2) + '\n');
+      await sleep(50);
+      logFn('Heating target ' + replayTarget.toFixed(2) + ' °C (replaying this session\'s NIR device-temperature trajectory).');
+    } else if (target === 0 && profileCalibrated && typeof heatingRiseC === 'number') {
       if (typeof latestTempC === 'number') {
         const setpoint = latestTempC + heatingRiseC;
         await send('H' + setpoint.toFixed(2) + '\n');
@@ -379,6 +386,15 @@ window.ArduinoLink = (function () {
     await send('g');
     logFn('NIR device: started "' + condName + '".');
     return true;
+  }
+
+  /** Register (or clear with null) a function returning the heating target in C. */
+  function setHeaterTargetProvider(fn) { heaterTargetFn = (typeof fn === 'function') ? fn : null; }
+
+  /** Push a heating target to the firmware now (it clamps to its own safe range). */
+  async function setHeaterTarget(tempC) {
+    if (!connected || !Number.isFinite(tempC)) return false;
+    return send('H' + tempC.toFixed(2) + '\n');
   }
 
   /** Stop stimulation and return the board to IDLE (called at run end/abort). */
@@ -403,6 +419,7 @@ window.ArduinoLink = (function () {
   return {
     connect, disconnect, tryAutoReconnect,
     runCondition, stop, resetTrip,
+    setHeaterTargetProvider, setHeaterTarget,
     isConnected: () => connected,
     isReceiving: () => receiving,
     isTripped: () => tripped,
