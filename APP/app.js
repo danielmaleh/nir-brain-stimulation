@@ -72,12 +72,32 @@ function rtPhaseMs() { return testModeActive ? TEST_RT_PHASE_MS : RT_PHASE_MS; }
 const COOLING_BREAK_MS = 90000;    // 1.5 minutes, stimulation off
 let inCoolingBreak = false;        // true while a scheduled cooling break runs
 function phaseSplit() { return !testModeActive; }
+
+// POST GAP: every condition ends with a stimulation-OFF window, so the recording
+// always carries a post-stimulation period before the run is closed -- including
+// the last condition, which previously ended the instant the RT phase did. It is
+// marked POST_START/POST_END (44/45) and applies to test sessions too, so a dry
+// run ends the way a real one does. RT_END fires before it, SESSION_END after.
+const POST_GAP_MS = 90000;         // 1.5 minutes, stimulation off
+let inPostGap = false;
+
+// HEATING TARGET: the heating control must reproduce, on the DEVICE sensor, what
+// that sensor recorded during this participant's own NIR runs. Every 5 s the
+// target is the mean device temperature the preceding NIR runs had at the same
+// offset into the run (interpolated from the session's temperature log), sent as
+// an H command; the firmware PID follows it within its unchanged 20% duty cap.
+// If Heating comes first in the randomised order there is nothing to replay yet
+// and the run falls back to the calibrated profile (baseline + fixed rise).
+const HEATER_TARGET_UPDATE_MS = 5000;
+let heaterReplayTimer = null;
+let heaterTargetSource = 'none';
 function sessionShape() {
   const m = (ms) => (ms / 60000).toFixed(1).replace(/\.0$/, '');
   const base = `${m(emgPhaseMs())} EMG + ${m(rtPhaseMs())} RT`;
-  if (!phaseSplit()) return `${m(emgPhaseMs() + rtPhaseMs())} min: ${base}`;
-  const total = emgPhaseMs() + rtPhaseMs() + 2 * COOLING_BREAK_MS;
-  return `${m(total)} min: ${base}, each phase split by a ${m(COOLING_BREAK_MS)} min cooling break`;
+  const post = ` + ${m(POST_GAP_MS)} min post gap`;
+  if (!phaseSplit()) return `${m(emgPhaseMs() + rtPhaseMs() + POST_GAP_MS)} min: ${base}${post}`;
+  const total = emgPhaseMs() + rtPhaseMs() + 2 * COOLING_BREAK_MS + POST_GAP_MS;
+  return `${m(total)} min: ${base}, each phase split by a ${m(COOLING_BREAK_MS)} min cooling break${post}`;
 }
 const RESUME_TEMP_C = 37.5;        // after a thermal shutdown, auto-resume once the RAW reading cools to this (old firmware)
 // Firmware >= surface-model builds trip on the ESTIMATED skin surface (37 C). After such a
@@ -168,12 +188,13 @@ window.addEventListener('load', () => {
     const updateDurationLabel = () => {
       const emgMs = elTestModeCb.checked ? TEST_EMG_PHASE_MS : EMG_PHASE_MS;
       const rtMs = elTestModeCb.checked ? TEST_RT_PHASE_MS : RT_PHASE_MS;
+      const post = `, then a ${POST_GAP_MS / 60000} min post gap`;
       if (elTestModeCb.checked) {
-        // Test sessions run their phases unbroken.
-        elDurationVal.textContent = `${(emgMs + rtMs) / 60000} min (${emgMs / 60000} EMG + ${rtMs / 60000} reaction-time) — TEST`;
+        // Test sessions run their phases unbroken (but end with the post gap like a real one).
+        elDurationVal.textContent = `${(emgMs + rtMs + POST_GAP_MS) / 60000} min (${emgMs / 60000} EMG + ${rtMs / 60000} reaction-time${post}) — TEST`;
       } else {
-        const total = (emgMs + rtMs + 2 * COOLING_BREAK_MS) / 60000;
-        elDurationVal.textContent = `${total} min (${emgMs / 60000} EMG + ${rtMs / 60000} reaction-time, each split by a ${COOLING_BREAK_MS / 60000} min cooling break)`;
+        const total = (emgMs + rtMs + 2 * COOLING_BREAK_MS + POST_GAP_MS) / 60000;
+        elDurationVal.textContent = `${total} min (${emgMs / 60000} EMG + ${rtMs / 60000} reaction-time, each split by a ${COOLING_BREAK_MS / 60000} min cooling break${post})`;
       }
     };
     elTestModeCb.addEventListener('change', updateDurationLabel);
@@ -327,7 +348,11 @@ async function resumeAfterThermal() {
       resumingThermal = false;
       return;
     }
-    await ArduinoLink.runCondition(sessionConditions[currentRunIndex]); // restart stimulation
+    if (pausedPhase !== 'POST') {
+      await ArduinoLink.runCondition(sessionConditions[currentRunIndex]); // restart stimulation
+    } else {
+      logToConsole('SYSTEM', 'Trip cleared during the post gap — stimulation stays off, finishing the gap.');
+    }
   }
 
   logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'SESSION_RESUME', null);
@@ -362,6 +387,11 @@ async function resumeAfterThermal() {
       showParticipantMessage('EMG Recording',
         'Please rest with your eyes closed.<br>No response is needed during this phase.');
       runPhaseTimer(remaining, onDone);
+    } else if (phase === 'POST') {
+      runPhase = 'POST';
+      showParticipantMessage('Almost Done',
+        'Stimulation has finished for this block.<br>Please keep resting quietly with your eyes closed.');
+      runPhaseTimer(remaining, onDone);
     } else {
       runPhase = 'RT';
       hideParticipantMessage();
@@ -371,6 +401,57 @@ async function resumeAfterThermal() {
       runPhaseTimer(remaining, onDone);
     }
   }, 2500);
+}
+
+/** Device-temperature trajectories of this session's completed NIR runs: [[msIntoRun, C], ...]. */
+function ledRunTrajectories() {
+  const log = currentSessionData.temperatureLog || [];
+  const runs = {};
+  for (const e of log) {
+    if (!/NIR/.test(e.condition || '') || e.runIndex === currentRunIndex + 1) continue;
+    const r = runs[e.runIndex] || (runs[e.runIndex] = { t0: null, pts: [] });
+    if (r.t0 === null && (e.event === 'EMG_START' || e.event === 'TEMPERATURE')) r.t0 = e.elapsedMs;
+    if (e.event === 'TEMPERATURE' && Number.isFinite(e.tempC) && r.t0 !== null) r.pts.push([e.elapsedMs - r.t0, e.tempC]);
+  }
+  return Object.values(runs).filter(r => r.pts.length >= 10).map(r => r.pts);
+}
+
+/** Mean device temperature the NIR runs had `tMs` into the run (linear interpolation, clamped). */
+function replayTargetAt(trajectories, tMs) {
+  const vals = trajectories.map(p => {
+    if (tMs <= p[0][0]) return p[0][1];
+    if (tMs >= p[p.length - 1][0]) return p[p.length - 1][1];
+    let i = 1;
+    while (p[i][0] < tMs) i++;
+    const [t0, v0] = p[i - 1], [t1, v1] = p[i];
+    return t1 === t0 ? v0 : v0 + (v1 - v0) * (tMs - t0) / (t1 - t0);
+  });
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+
+function startHeaterReplay() {
+  stopHeaterReplay();
+  const trajectories = ledRunTrajectories();
+  if (!trajectories.length) {
+    heaterTargetSource = 'profile';
+    logToConsole('SYSTEM', 'Heating target: no NIR run recorded yet in this session — using the calibrated thermal profile (baseline + fixed rise).');
+    return;
+  }
+  heaterTargetSource = 'replay:' + trajectories.length + ' NIR run(s)';
+  const provider = () => replayTargetAt(trajectories, performance.now() - trialStartPerfTime);
+  if (window.ArduinoLink && ArduinoLink.setHeaterTargetProvider) ArduinoLink.setHeaterTargetProvider(provider);
+  logToConsole('SYSTEM', `Heating target: replaying the device-temperature trajectory of ${trajectories.length} NIR run(s) from this session, updated every ${HEATER_TARGET_UPDATE_MS / 1000} s.`);
+  heaterReplayTimer = setInterval(() => {
+    if (!trialRunning || pausedForThermal || inCoolingBreak || inPostGap) return;
+    const target = provider();
+    recordTemperature('HEATER_TARGET', target);
+    if (window.ArduinoLink && ArduinoLink.setHeaterTarget) ArduinoLink.setHeaterTarget(target);
+  }, HEATER_TARGET_UPDATE_MS);
+}
+
+function stopHeaterReplay() {
+  if (heaterReplayTimer) { clearInterval(heaterReplayTimer); heaterReplayTimer = null; }
+  if (window.ArduinoLink && ArduinoLink.setHeaterTargetProvider) ArduinoLink.setHeaterTargetProvider(null);
 }
 
 /**
@@ -767,7 +848,12 @@ function startRun() {
   logEvent('0.000', 'SESSION_START', null);
   sendMarker('SESSION_START;cond=' + condCode(currentCondition));
 
-  // Stimulation ON for the whole 17-min session (both phases).
+  // Heating: arm the replay provider BEFORE the device starts, so runCondition's own
+  // H command already carries the replayed target instead of the static profile.
+  if (currentCondition === 'Heating Control') startHeaterReplay();
+  else stopHeaterReplay();
+
+  // Stimulation ON for the whole session (both phases; cooling breaks switch it off).
   if (window.ArduinoLink) ArduinoLink.runCondition(currentCondition);
 
   updateStats();
@@ -813,8 +899,43 @@ function startRtPhase() {
   if (phaseSplit()) {
     runPhaseTimer(rtPhaseMs() / 2, () => coolingBreak(resumeRtSecondHalf));
   } else {
-    runPhaseTimer(rtPhaseMs(), endRun);
+    runPhaseTimer(rtPhaseMs(), endRtPhase);
   }
+}
+
+/** RT phase over: close the task, mark RT_END, then the stimulation-off post gap. */
+function endRtPhase() {
+  clearTimeout(stimulusTimer);
+  clearTimeout(responseTimer);
+  awaitingResponse = false;
+  logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'RT_END', null);
+  sendMarker('RT_END');
+  postGap(endRun);
+}
+
+/**
+ * @brief Stimulation-off window that ends every condition. The device is stopped
+ *        (STIM_OFF/HEAT_OFF ride along from the device layer), the participant keeps
+ *        resting, and onDone (endRun -> SESSION_END) fires when the gap elapses.
+ */
+function postGap(onDone) {
+  runPhase = 'POST';
+  inPostGap = true;
+  stopHeaterReplay();
+  recordTemperature('POST_START');
+  if (window.ArduinoLink) ArduinoLink.stop();
+  logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'POST_START', null);
+  sendMarker('POST_START');
+  logToConsole('SYSTEM', `Post gap (${POST_GAP_MS / 60000} min) — stimulation off, recording continues.`);
+  showParticipantMessage('Almost Done',
+    'Stimulation has finished for this block.<br>Please keep resting quietly with your eyes closed.');
+  runPhaseTimer(POST_GAP_MS, () => {
+    inPostGap = false;
+    recordTemperature('POST_END');
+    logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'POST_END', null);
+    sendMarker('POST_END');
+    onDone();
+  });
 }
 
 /**
@@ -866,7 +987,7 @@ function resumeRtSecondHalf() {
   awaitingResponse = false;
   lastEventPerfTime = performance.now();
   scheduleNextStimulus();
-  runPhaseTimer(rtPhaseMs() / 2, endRun);
+  runPhaseTimer(rtPhaseMs() / 2, endRtPhase);
 }
 
 /** Drives the phase countdown display (M:SS) and fires onDone when the phase elapses.
@@ -986,8 +1107,8 @@ function endRun() {
   const currentCondition = sessionConditions[currentRunIndex];
   const tNow = ((performance.now() - trialStartPerfTime) / 1000).toFixed(3);
 
-  logEvent(tNow, 'RT_END', null);
-  sendMarker('RT_END');
+  inPostGap = false;
+  stopHeaterReplay();
   logEvent(tNow, 'SESSION_END', null);
   sendMarker('SESSION_END;cond=' + condCode(currentCondition));
 
@@ -1002,7 +1123,8 @@ function endRun() {
     logs: [...currentTrialData.logs],
     reactionTimes: [...reactionTimes],
     falseAlarmsCount: falseAlarmsCount,
-    missedCount: missedCount
+    missedCount: missedCount,
+    heatingTargetSource: currentCondition === 'Heating Control' ? heaterTargetSource : ''
   });
 
   // Persist every completed session immediately (not just at the very end).
@@ -1148,6 +1270,8 @@ function abortTrial(reason) {
   // An abort mid-break never reaches COOL_END; a stale flag would silence the next
   // session's task (test sessions have no break to clear it).
   inCoolingBreak = false;
+  inPostGap = false;
+  stopHeaterReplay();
 
   // If aborted during an active run, log the abort in the run
   if (currentTrialData && currentTrialData.logs) {
