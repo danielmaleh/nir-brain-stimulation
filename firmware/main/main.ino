@@ -39,6 +39,7 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include "pins.h"
+#include "surface_model.h"
 
 // --- Configuration & Constants ---
 const float MAX_SAFE_TEMP = 40.0;        // Emergency cutoff temperature (Celsius)
@@ -52,6 +53,28 @@ const float PROTOCOL_MAX_SAFE_TEMP = 40.0;
 // DS18B20 measurement ceiling. A cutoff above this can never be reached, so the
 // safety check would be unreachable code rather than merely a higher limit.
 const float SENSOR_MAX_TEMP = 125.0;
+// --- Skin-surface estimate ------------------------------------------------
+// The DS18B20 sits behind the contact surface and reads several degrees LOW and
+// ~90 s LATE during a warming ramp (bench 2026-09-11: surface 42.5 C while the
+// device read 34.0). The final device has no surface probe, so the firmware
+// estimates the surface from the device reading, a per-temperature-range gap
+// table and the reading's slope (surface_model.h, fitted from bench data with
+// analysis/thermal/fit_surface_model.py). The safety cutoff is applied to that
+// ESTIMATE, with a margin covering the fit's worst under-estimate; the raw
+// reading against MAX_SAFE_TEMP stays as a backstop.
+const float SURFACE_MARGIN_C = 3.0;  // >= the fit's worst hold-out under-estimate (2.8 C on 2026-09-17 data)
+const float SURFACE_CUTOFF = MAX_SAFE_TEMP - SURFACE_MARGIN_C; // derived: a bench build with the cutoff raised disables this too
+// 'R' refuses to clear a trip until the estimate is this far back under its cutoff. After an
+// estimate-based trip the RAW reading is only ~33 C, so gating the reset on the raw 40 C
+// alone would let the host restart stimulation onto a surface that is still ~37 C.
+const float SURFACE_RESET_HYST_C = 2.0;
+float surfaceEstC = 0.0;          // latest estimated skin-surface temperature (C)
+float surfaceSlopeCps = 0.0;      // latest device slope used for it (C/s)
+const uint8_t SURF_HIST_N = SURF_SLOPE_WINDOW_S + 1;   // 1 Hz ring buffer spanning the slope window
+float surfHist[SURF_HIST_N];
+uint8_t surfHead = 0, surfCount = 0;
+unsigned long surfLastSampleMs = 0;
+
 const float HEATER_TARGET_DEFAULT = 37.5; // Default heating-control set point (Celsius)
 const float HEATER_HYSTERESIS = 0.5;      // Hysteresis window for heating control (Celsius)
 
@@ -241,6 +264,10 @@ void setup() {
   Serial.print(MAX_SAFE_TEMP == PROTOCOL_MAX_SAFE_TEMP ? F("PROTOCOL") : F("BENCH"));
   Serial.print(F(",cutoff="));
   Serial.println(MAX_SAFE_TEMP, 1);
+  Serial.print(F("SURF_MODEL,"));
+  Serial.print(F(SURF_MODEL_ID));
+  Serial.print(F(",cutoff="));
+  Serial.println(SURFACE_CUTOFF, 1);
 
   if (MAX_SAFE_TEMP != PROTOCOL_MAX_SAFE_TEMP) {
     Serial.println(F("**************************************************"));
@@ -322,6 +349,7 @@ void loop() {
       } else {
         suspectReadCount = 0;
         currentTemp = newTemp;
+        updateSurfaceEstimate(currentTimeMs);
         checkSafety();
       }
     }
@@ -543,12 +571,52 @@ void changeState(SystemState newState) {
 /**
  * @brief Safety monitor checking skin temperature and taking corrective actions.
  */
+/** Piecewise-linear lookup of the gap table at a device temperature (flat beyond the ends). */
+float surfGapLookup(const float* gap, float t) {
+  float x = (t - SURF_NODE_T0) / SURF_NODE_STEP;
+  if (x <= 0.0) return gap[0];
+  if (x >= SURF_NODE_N - 1) return gap[SURF_NODE_N - 1];
+  int i = (int)x;
+  float f = x - i;
+  return gap[i] + f * (gap[i + 1] - gap[i]);
+}
+
+/**
+ * @brief Refresh the skin-surface estimate from the latest device reading:
+ *        surface = device + gap[device] + rate * slope over the last 40 s.
+ *        Same arithmetic as the offline fit, so its reported accuracy applies.
+ */
+void updateSurfaceEstimate(unsigned long nowMs) {
+  if (nowMs - surfLastSampleMs >= 1000) {
+    surfLastSampleMs = nowMs;
+    surfHist[surfHead] = currentTemp;
+    surfHead = (surfHead + 1) % SURF_HIST_N;   // after the advance, surfHist[surfHead] is the OLDEST sample
+    if (surfCount < SURF_HIST_N) surfCount++;
+  }
+  float slope = 0.0;   // until the window has filled, assume steady (the table alone still applies)
+  if (surfCount == SURF_HIST_N) slope = (currentTemp - surfHist[surfHead]) / (float)SURF_SLOPE_WINDOW_S;
+  bool heaterSource = (currentState == STATE_STIMULATING && selectedCondition == COND_HEATING);
+  const float* gap = heaterSource ? SURF_GAP_HEATER : SURF_GAP_LED;
+  float rate = heaterSource ? SURF_RATE_HEATER : SURF_RATE_LED;
+  surfaceSlopeCps = slope;
+  surfaceEstC = currentTemp + surfGapLookup(gap, currentTemp) + rate * slope;
+}
+
 void checkSafety() {
   // Trip once and stay latched: while already tripped, keep logging temperature
   // (so the operator can watch it cool down) without re-emitting SAFETY_TRIP.
   if (currentTemp >= MAX_SAFE_TEMP && currentState != STATE_SAFETY_TRIP) {
     char reasonBuf[64];
     snprintf(reasonBuf, sizeof(reasonBuf), "Over-temp detected: %s C", String(currentTemp, 2).c_str());
+    triggerSafetyShutdown(reasonBuf);
+    return;
+  }
+  // The estimated SURFACE is what the participant feels; it leads the device
+  // reading by up to ~8 C during a ramp, so this is the cutoff that normally fires.
+  if (surfaceEstC >= SURFACE_CUTOFF && currentState != STATE_SAFETY_TRIP) {
+    char reasonBuf[80];
+    snprintf(reasonBuf, sizeof(reasonBuf), "Surface estimate %s C over limit (device %s C)",
+             String(surfaceEstC, 1).c_str(), String(currentTemp, 2).c_str());
     triggerSafetyShutdown(reasonBuf);
     return;
   }
@@ -578,7 +646,9 @@ void checkSafety() {
     Serial.print(F(",TEMP_LOG,"));
     Serial.print(currentTemp, 2);
     Serial.print(F(","));
-    Serial.println(currentState == STATE_STIMULATING ? (int)selectedCondition : -1);
+    Serial.print(currentState == STATE_STIMULATING ? (int)selectedCondition : -1);
+    Serial.print(F(","));            // 4th field: estimated skin-surface temperature
+    Serial.println(surfaceEstC, 2);
   }
 }
 
@@ -856,10 +926,14 @@ void handleSerialCommands() {
           sensors.requestTemperatures();
           delay(200); // Small blocking delay for manual override verification
           float checkTemp = sensors.getTempC(tempDeviceAddress);
-
-          if (checkTemp != DEVICE_DISCONNECTED_C && checkTemp < MAX_SAFE_TEMP) {
-            digitalWrite(PIN_LED_ERROR, LOW);
+          if (checkTemp != DEVICE_DISCONNECTED_C) {
             currentTemp = checkTemp;
+            updateSurfaceEstimate(millis());   // re-evaluate the surface with the fresh reading
+          }
+
+          if (checkTemp != DEVICE_DISCONNECTED_C && checkTemp < MAX_SAFE_TEMP
+              && surfaceEstC < SURFACE_CUTOFF - SURFACE_RESET_HYST_C) {
+            digitalWrite(PIN_LED_ERROR, LOW);
             suspectReadCount = 0;
             Serial.println(F("# Safety trip successfully reset. Re-entering IDLE state."));
             // Use changeState so a STATE_CHANGE event is emitted - without it the
@@ -870,8 +944,10 @@ void handleSerialCommands() {
             // Stay tripped: put the driver back into standby.
             digitalWrite(PIN_TB_STBY, LOW);
 #endif
-            Serial.print(F("# Reset failed. Temp still too high: "));
+            Serial.print(F("# Reset failed. Temp still too high: sensor "));
             Serial.print(checkTemp);
+            Serial.print(F(" C, estimated surface "));
+            Serial.print(surfaceEstC, 1);
             Serial.println(F(" C"));
           }
         }

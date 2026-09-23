@@ -455,12 +455,12 @@ function parseSerialLine(line) {
       const val1 = parts[2] ? parts[2].trim() : '';
       const val2 = parts[3] ? parts[3].trim() : '';
       
-      handleTelemetryEvent(eventType, val1, val2);
+      handleTelemetryEvent(eventType, val1, val2, parts[4] ? parts[4].trim() : '');
     }
   }
 }
 
-function handleTelemetryEvent(eventType, val1, val2) {
+function handleTelemetryEvent(eventType, val1, val2, val3) {
   switch (eventType) {
     case 'TEMP_LOG': {
       const tempVal = parseFloat(val1);
@@ -468,6 +468,9 @@ function handleTelemetryEvent(eventType, val1, val2) {
       if (!isNaN(tempVal)) {
         updateTemperatureDisplay(tempVal);
       }
+      const surfEst = parseFloat(val3);   // 4th field: firmware skin-surface estimate (absent on old firmware)
+      const elSurf = document.getElementById('temp-surface-est');
+      if (elSurf) elSurf.textContent = isNaN(surfEst) ? '--' : surfEst.toFixed(1) + ' °C';
       // condIdx is -1 while idle/resting (no active condition). Only update the mode
       // display during stimulation (>= 0) so it never clobbers the selected mode.
       if (!isNaN(condIdx) && condIdx >= 0) {

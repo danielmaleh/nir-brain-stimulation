@@ -48,6 +48,7 @@ window.ArduinoLink = (function () {
   let heatingRiseC = null;
   let profileCalibrated = false;
   let latestTempC = null;
+  let latestSurfaceEstC = null;   // firmware's estimated skin-surface temperature (TEMP_LOG 4th field)
   let buildInfo = null;      // {type: "PROTOCOL"|"BENCH", cutoff} from the boot BUILD line
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -252,7 +253,14 @@ window.ArduinoLink = (function () {
 
     if (ev === 'TEMP_LOG') {
       const t = parseFloat(v1);
-      if (!isNaN(t)) { latestTempC = t; if (tempFn) tempFn(t); }
+      const est = parts[4] !== undefined ? parseFloat(parts[4]) : NaN;   // absent on older firmware
+      if (!isNaN(est)) latestSurfaceEstC = est;
+      if (!isNaN(t)) { latestTempC = t; if (tempFn) tempFn(t, isNaN(est) ? null : est); }
+      return;
+    }
+    if (line.indexOf('SURF_MODEL,') === 0) {
+      const sp = line.split(',');
+      logFn('Surface-temperature model ' + (sp[1] || '?') + ' active; skin-surface cutoff at ' + ((sp[2] || '').split('=')[1] || '?') + ' °C.');
       return;
     }
 
@@ -399,6 +407,7 @@ window.ArduinoLink = (function () {
     isReceiving: () => receiving,
     isTripped: () => tripped,
     getTemp: () => latestTempC,
+    getSurfaceEst: () => latestSurfaceEstC,
     getBuildInfo: () => buildInfo,
     setLogger, setOnStatus, setOnTemp, setOnStop,
   };
