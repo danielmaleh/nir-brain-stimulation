@@ -58,14 +58,14 @@ A 600 Hz sine tone (10 ms attack, 150 ms decay, generated in the Web Audio API) 
 | Duty cycle | 50 % |
 | Illumination area | ~4 cm² |
 | Exposure per condition | 17 min (1020 s) light-on, delivered as 4 blocks separated by two 1.5-min cooling breaks (same total energy; pacing keeps skin temperature down) |
-| Skin-contact temperature | Hard latching cut-off at **40.0 °C** |
+| Skin-contact temperature | Hard latching cut-off at an **estimated skin-surface temperature of 37.0 °C** (40 °C limit minus a 3 °C margin covering the estimate's worst-case error), with the raw sensor reading ≥ 40.0 °C as a backstop. The DS18B20 sits behind the contact surface and reads several degrees low and ~90 s late during a ramp, so the firmware estimates the surface from a per-temperature-range gap table plus the reading's slope — see `analysis/thermal/fit_surface_model.py`, which fits the table from a bench run with a reference probe at the contact point and must be re-run whenever the sensor, LED array or heater is remounted. |
 | Heating-control set point | 37.5 °C default, PID-regulated, heater duty capped at 20 % |
 
 > **Before running participants, measure the delivered irradiance at the scalp with a calibrated power meter** and compute the per-condition fluence as `irradiance × 1020 s`. Confirm the result against your ethics-approved dose and the published tPBM window (0.3–3 J/cm² useful range, ~5–100 mW/cm² irradiance — see References). Do not infer the dose from the drive current.
 
 Non-negotiable safety properties, all enforced in firmware and verified by `firmware/safety_test/`:
 
-- Skin temperature never exceeds 40 °C — the cut-off **latches** and de-energises both channels; it only resets once the real temperature is back below 40 °C.
+- Skin temperature never exceeds 40 °C — the cut-off acts on the firmware's **estimated skin-surface temperature** (37 °C, i.e. 40 °C minus a 3 °C margin), **latches** and de-energises both channels; it only resets once the sensor reading is back below 40 °C. The raw reading ≥ 40 °C is a second, independent trip.
 - A disconnected or faulty DS18B20 (reading −127 °C, or three consecutive 85 °C power-on values) latches a trip rather than failing open.
 - The heater target is clamped to stay at least 1 °C below the cut-off, whatever value is commanded.
 - Every pulse and temperature reading is timestamped and logged over USB serial.

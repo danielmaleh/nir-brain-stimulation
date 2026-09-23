@@ -63,7 +63,7 @@
         <h3>Hardware Specifications</h3>
         <ul style="padding-left: 1.25rem; display: flex; flex-direction: column; gap: 0.35rem;">
           <li>DS18B20 1-Wire temperature sensor resolution is set to 10-bit.</li>
-          <li>Safety Cutoff activates instantly if temperature sensor reading meets or exceeds 40.0 °C.</li>
+          <li>Safety Cutoff: the firmware estimates the skin-surface temperature from the DS18B20 (which reads low and ~90 s late during a ramp) and trips at an estimated 37.0 °C; the raw sensor reading ≥ 40.0 °C remains a backstop. The estimate is the 4th <code>TEMP_LOG</code> field.</li>
           <li>Heater is regulated by a closed-loop PID controller to the calibrated NIR-matched target (default 37.5 °C); watch <code>HEATER_PID</code> lines (duty %, temp, target) in the feed.</li>
           <li>LED Blinding constraint: Mode LEDs turn off completely while active stimulation is running.</li>
         </ul>
@@ -117,7 +117,7 @@
                   </div>
                   <div class="temp-stat-row">
                     <span class="temp-stat-label">Safety Cutoff:</span>
-                    <span class="temp-stat-value" style="color: var(--color-danger);">40.0 °C</span>
+                    <span class="temp-stat-value" style="color: var(--color-danger);">37.0 °C est. skin / 40.0 °C sensor</span>
                   </div>
                   <div class="temp-stat-row">
                     <span class="temp-stat-label">Min / Max Session:</span>
@@ -126,6 +126,10 @@
                   <div class="temp-stat-row">
                     <span class="temp-stat-label">Update Rate:</span>
                     <span class="temp-stat-value" id="temp-update-rate">--</span>
+                  </div>
+                  <div class="temp-stat-row">
+                    <span class="temp-stat-label">Est. skin surface:</span>
+                    <span class="temp-stat-value" id="temp-surface-est">--</span>
                   </div>
                 </div>
 
@@ -241,6 +245,6 @@
 
   <script src="serial_lock.js?v=1"></script>
   <script src="lsl_markers.js?v=1"></script>
-  <script src="arduino.js?v=7"></script>
+  <script src="arduino.js?v=8"></script>
 </body>
 </html>

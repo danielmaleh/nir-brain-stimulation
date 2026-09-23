@@ -79,7 +79,11 @@ function sessionShape() {
   const total = emgPhaseMs() + rtPhaseMs() + 2 * COOLING_BREAK_MS;
   return `${m(total)} min: ${base}, each phase split by a ${m(COOLING_BREAK_MS)} min cooling break`;
 }
-const RESUME_TEMP_C = 37.5;        // after a thermal shutdown, auto-resume once temp cools to this
+const RESUME_TEMP_C = 37.5;        // after a thermal shutdown, auto-resume once the RAW reading cools to this (old firmware)
+// Firmware >= surface-model builds trip on the ESTIMATED skin surface (37 C). After such a
+// trip the raw reading is only ~33 C, so keying the resume to it would restart stimulation
+// at once and oscillate; resume on the estimate instead, below its cutoff by a clear margin.
+const RESUME_SURFACE_C = 34.0;
 const BASE_DELAY_MS = 5000;        // 5 seconds
 const JITTER_MAX_MS = 2000;        // 2 second jitter range (0 to 2s)
 const RESPONSE_WINDOW_MS = 2000;   // Wait this long for a press after a tone; no press -> OMISSION and the run continues
@@ -223,11 +227,15 @@ function updateNirStatus(s) {
 /**
  * @brief Live contact-temperature readout (fed from every TEMP_LOG telemetry line).
  */
-function updateTempMonitor(tempC) {
+function updateTempMonitor(tempC, surfaceEstC) {
   if (!elStatsTemp) return;
-  elStatsTemp.textContent = tempC.toFixed(1) + ' °C';
-  elStatsTemp.style.color = tempC >= 39 ? 'var(--color-danger)'
-    : tempC >= 38 ? 'var(--color-warning)' : 'var(--accent-secondary)';
+  // The firmware's skin-surface estimate is what the safety cutoff (38 °C) acts on;
+  // colour by it when available, since the raw reading lags the surface by up to ~8 °C.
+  const hasEst = Number.isFinite(surfaceEstC);
+  elStatsTemp.textContent = tempC.toFixed(1) + ' °C' + (hasEst ? ' · skin ≈ ' + surfaceEstC.toFixed(1) : '');
+  const ref = hasEst ? surfaceEstC : tempC;
+  elStatsTemp.style.color = ref >= 37.5 ? 'var(--color-danger)'
+    : ref >= 36 ? 'var(--color-warning)' : 'var(--accent-secondary)';
 }
 
 /**
@@ -249,10 +257,13 @@ function hideNirAlert() {
 // --- Thermal shutdown: pause the session, wait for cool-down, auto-resume ---
 
 /** Temperature updates: refresh the monitor and, if paused, watch for recovery. */
-function onDeviceTemp(tempC) {
+function onDeviceTemp(tempC, surfaceEstC) {
   if (sessionActive && Number.isFinite(tempC)) recordTemperature('TEMPERATURE', tempC);
-  updateTempMonitor(tempC);
-  if (pausedForThermal && !resumingThermal && tempC <= RESUME_TEMP_C) {
+  updateTempMonitor(tempC, surfaceEstC);
+  const hasEst = Number.isFinite(surfaceEstC);
+  const cooledEnough = hasEst ? (surfaceEstC <= RESUME_SURFACE_C && tempC <= RESUME_TEMP_C)
+                              : (tempC <= RESUME_TEMP_C);
+  if (pausedForThermal && !resumingThermal && cooledEnough) {
     resumeAfterThermal();
   }
 }
@@ -294,7 +305,7 @@ function handleThermalShutdown(reason) {
 
   elStatsTimeLeft.textContent = 'PAUSED';
   showParticipantMessage('⚠ Paused — Cooling Down',
-    `Skin temperature exceeded the 40 °C limit and stimulation was cut for safety.<br>` +
+    `Skin temperature reached the safety limit and stimulation was cut.<br>` +
     `The session will resume automatically once it cools to ${RESUME_TEMP_C} °C.`);
 }
 
@@ -307,7 +318,7 @@ async function resumeAfterThermal() {
   if (!pausedForThermal || resumingThermal) return;
   resumingThermal = true;
 
-  logToConsole('SYSTEM', `Temperature recovered to ≤ ${RESUME_TEMP_C} °C — clearing the trip and resuming.`);
+  logToConsole('SYSTEM', `Temperature recovered (estimated skin ≤ ${RESUME_SURFACE_C} °C / sensor ≤ ${RESUME_TEMP_C} °C) — clearing the trip and resuming.`);
 
   if (window.ArduinoLink) {
     const ok = await ArduinoLink.resetTrip();            // send 'R' (succeeds since temp < 40)
