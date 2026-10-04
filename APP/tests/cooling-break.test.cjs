@@ -54,7 +54,7 @@ function makeApp() {
     window: { LSLMarkers: { send: marker => markers.push(marker) }, ArduinoLink: link },
     ArduinoLink: link,
     trialRunning: true, sessionActive: true, testModeActive: false, inPausePhase: false, runPhase: null,
-    inCoolingBreak: false, inPostGap: false, heaterReplayTimer: null, heaterTargetSource: 'none',
+    inCoolingBreak: false, inPostGap: false, inPreGap: false, heaterReplayTimer: null, heaterTargetSource: 'none',
     pausedForThermal: false, resumingThermal: false, pausedPhase: null,
     pausedRemainingMs: 0, pausedOnDone: null, pausedInCooling: false,
     phaseStartMs: 0, phaseDurationMs: 0, phaseOnDone: null,

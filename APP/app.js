@@ -81,6 +81,13 @@ function phaseSplit() { return !testModeActive; }
 const POST_GAP_MS = 90000;         // 1.5 minutes, stimulation off
 let inPostGap = false;
 
+// PRE GAP: one stimulation-off window before the FIRST condition, so every
+// condition has an off period on both sides -- conditions 2 and 3 already get
+// theirs from the preceding post gap + rest, the first one had none. Marked
+// PRE_START/PRE_END (46/47), before the first SESSION_START. Test sessions too.
+const PRE_GAP_MS = 90000;          // 1.5 minutes, stimulation off
+let inPreGap = false;
+
 // HEATING TARGET: the heating control must reproduce, on the DEVICE sensor, what
 // that sensor recorded during this participant's own NIR runs. Every 5 s the
 // target is the mean device temperature the preceding NIR runs had at the same
@@ -748,8 +755,41 @@ function startTrial() {
 
   logToConsole('SYSTEM', `STARTING SESSION: ${participantId} | Session: ${sessionId} | Sequence: [${sessionConditions.join(', ')}]`);
 
-  // Start the first session (condition).
-  startRun();
+  // Stimulation-off pre gap, then the first session (condition).
+  preGap(startRun);
+}
+
+/**
+ * @brief Stimulation-off window before the first condition. Runs on the rest
+ *        timer (pauseTimer) so the abort path already cancels it; no run is open
+ *        yet, so it is recorded in the session data, the temperature log and the
+ *        marker stream rather than in a run's event log.
+ */
+function preGap(onDone) {
+  inPreGap = true;
+  inPausePhase = true;
+  currentTrialData = null;   // no run open: an abort here must not save a phantom run
+  currentSessionData.preGapMs = PRE_GAP_MS;
+  recordTemperature('PRE_START');
+  if (window.ArduinoLink) ArduinoLink.stop();
+  sendMarker('PRE_START');
+  logToConsole('SYSTEM', `Pre gap (${PRE_GAP_MS / 60000} min) — stimulation off before the first condition (${sessionConditions[0]}).`);
+  showParticipantMessage('Getting Started',
+    'Please rest quietly with your eyes closed.<br>The session begins shortly.');
+  const endsAt = performance.now() + PRE_GAP_MS;
+  const tick = () => {
+    const left = Math.max(0, Math.ceil((endsAt - performance.now()) / 1000));
+    elStatsTimeLeft.textContent = `Pre: ${left}s`;
+    if (left > 0) return;
+    clearInterval(pauseTimer);
+    inPreGap = false;
+    inPausePhase = false;
+    recordTemperature('PRE_END');
+    sendMarker('PRE_END');
+    onDone();
+  };
+  tick();
+  pauseTimer = setInterval(tick, 250);
 }
 
 /**
@@ -772,7 +812,7 @@ function recordTemperature(event, tempC = null, unixMs = Date.now()) {
     tempC,
     runIndex: currentRunIndex + 1,
     condition: sessionConditions[currentRunIndex] || '',
-    phase: inPausePhase ? 'REST' : (runPhase || 'TRANSITION'),
+    phase: inPreGap ? 'PRE' : inPausePhase ? 'REST' : (runPhase || 'TRANSITION'),
     thermalPaused: pausedForThermal
   });
   if (event === 'TEMPERATURE') {
@@ -1271,6 +1311,7 @@ function abortTrial(reason) {
   // session's task (test sessions have no break to clear it).
   inCoolingBreak = false;
   inPostGap = false;
+  inPreGap = false;
   stopHeaterReplay();
 
   // If aborted during an active run, log the abort in the run
