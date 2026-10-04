@@ -22,7 +22,7 @@ const context = vm.createContext({
   currentRunIndex: 0, sessionConditions: ['Heating Control'], runPhase: 'EMG',
   sessionActive: true, trialRunning: false, inPausePhase: false,
   pausedForThermal: false, resumingThermal: false, awaitingResponse: false,
-  inCoolingBreak: false, inPostGap: false, heaterReplayTimer: null,
+  inCoolingBreak: false, inPostGap: false, inPreGap: false, heaterReplayTimer: null,
   currentTrialData: null, sessionTimer: null, stimulusTimer: null, responseTimer: null, pauseTimer: null,
   clearInterval() {}, clearTimeout() {}, setTimeout() {},
   window: {}, console, updateTempMonitor() {}, resumeAfterThermal() {},

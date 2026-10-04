@@ -40,7 +40,7 @@ The device works standalone over USB; no laptop-side runtime is required beyond 
 | **Conditions** | `Heating Control` · `10 Hz NIR` · `40 Hz NIR` |
 | **Per condition** | 21.5 min — a 10-min silent EMG-baseline phase, then a 7-min reaction-time phase, each split at its midpoint by a 1.5-min cooling break (stimulation off), then a 1.5-min stimulation-off post gap that ends every condition. Stimulation is on for all 17 task minutes. |
 | **Rest between conditions** | Configurable, default 3 min |
-| **Total in-protocol time** | ~70 min per participant, plus EEG capping and setup |
+| **Total in-protocol time** | ~72 min per participant (a 1.5-min stimulation-off pre gap, three 21.5-min conditions, two 3-min rests), plus EEG capping and setup |
 | **Measures** | Continuous EEG (Enobio 32 via NIC2), wrist EMG on EXG channels, auditory reaction time |
 
 ### Reaction-time task
@@ -195,6 +195,8 @@ Markers are integers because NIC2 does not record string markers. The codebook i
 | `43` | COOL_END | — | `COOL_END` | task page | Scheduled cooling break over; stimulation back on, phase second half resumes |
 | `44` | POST_START | — | `POST_START` | task page | Stimulation-off post gap begins — the last step of every condition (after `RT_END`, before `SESSION_END`) |
 | `45` | POST_END | — | `POST_END` | task page | Post gap over; `SESSION_END` follows |
+| `46` | PRE_START | — | `PRE_START` | task page | Stimulation-off pre gap begins — once, before the first condition's `SESSION_START` |
+| `47` | PRE_END | — | `PRE_END` | task page | Pre gap over; the first `SESSION_START` follows |
 | `99` | SAFETY_TRIP | — | `SAFETY_TRIP` | device | 40 °C skin-temperature cut-off latched; all stimulation force-stopped |
 
 Condition-bearing events are encoded as **base code + condition offset** (`Heating` = 0, `10Hz` = 1, `40Hz` = 2), which is why `30` is deliberately unused — the heating control emits `HEAT_ON` (34) instead of a `NIR_ON`. The arithmetic can still *produce* 30 (`NIR_ON` + Heating), which is a contradiction, so the bridge rejects it as invalid rather than writing it. A `cond=` that is missing or misspelt is likewise rejected, never defaulted to offset 0 — silently relabelling a 10 Hz run as the heating arm is unrecoverable after the fact. "Task page" codes originate in the browser app; "device" codes are derived from Arduino serial telemetry, so `11` (the task says stimulation started) and `31` (the device confirms the LED is pulsing) are independent confirmations.

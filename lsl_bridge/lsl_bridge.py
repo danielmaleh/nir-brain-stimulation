@@ -65,6 +65,8 @@ SIMPLE_CODES = {
     "COOL_END": 43,     # scheduled cooling break over (stimulation back on, phase second half resumes)
     "POST_START": 44,   # stimulation-off post gap begins (last step of every condition; RT_END precedes it)
     "POST_END": 45,     # post gap over; SESSION_END follows
+    "PRE_START": 46,    # stimulation-off pre gap begins (once, before the first condition's SESSION_START)
+    "PRE_END": 47,      # pre gap over; the first SESSION_START follows
     # HARDWARE (from the device telemetry):
     "STIM_OFF": 29,     # device stimulation block ended/aborted
     "HEAT_ON": 34,      # heater element energised (heating condition)
@@ -238,6 +240,7 @@ async def main():
     print("[bridge]   SESSION_PAUSE=40 SESSION_RESUME=41 (thermal shutdown/recovery)", flush=True)
     print("[bridge]   COOL_START=42 COOL_END=43 (scheduled mid-phase cooling breaks)", flush=True)
     print("[bridge]   POST_START=44 POST_END=45 (stimulation-off post gap ending every condition)", flush=True)
+    print("[bridge]   PRE_START=46 PRE_END=47 (stimulation-off pre gap before the first condition)", flush=True)
     print("[bridge]   NIR_ON=31/32 (10Hz/40Hz)  STIM_OFF=29  HEAT_ON=34 HEAT_OFF=35  SAFETY_TRIP=99", flush=True)
 
     print(f"[bridge]   unrecognised markers -> {UNKNOWN_CODE} (never 0: 0 is "
