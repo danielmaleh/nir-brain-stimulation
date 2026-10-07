@@ -59,7 +59,7 @@ let testModeActive = false;        // latched from the checkbox when a session s
 function emgPhaseMs() { return testModeActive ? TEST_EMG_PHASE_MS : EMG_PHASE_MS; }
 function rtPhaseMs() { return testModeActive ? TEST_RT_PHASE_MS : RT_PHASE_MS; }
 
-// Mid-phase cooling breaks (REAL sessions only): each phase is split at its
+// Mid-phase cooling breaks: each phase is split at its
 // midpoint and stimulation is switched OFF for a fixed cool-down, so skin
 // temperature cannot ramp for 10 (or 7) unbroken minutes. Bench measurements
 // (2026-08) showed ~1.5-2.5 C/min climb at protocol duty with no plateau, so
@@ -68,10 +68,14 @@ function rtPhaseMs() { return testModeActive ? TEST_RT_PHASE_MS : RT_PHASE_MS; }
 // RESUME (40/41), which mean an EMERGENCY thermal shutdown - so analysis can
 // separate scheduled pacing from safety events. Delivered light energy per
 // condition is unchanged (same total on-time); only the pacing changes.
-// Test sessions run their phases unbroken.
-const COOLING_BREAK_MS = 90000;    // 1.5 minutes, stimulation off
-let inCoolingBreak = false;        // true while a scheduled cooling break runs
-function phaseSplit() { return !testModeActive; }
+// Test sessions split their (shorter) phases the same way, with a 1-min break,
+// so a dry run exercises the same structure and markers as a real session.
+const COOLING_BREAK_MS = 90000;       // 1.5 minutes, stimulation off (real sessions)
+const TEST_COOLING_BREAK_MS = 60000;  // 1 minute (test sessions)
+let inCoolingBreak = false;           // true while a scheduled cooling break runs
+function coolingBreakMs() { return testModeActive ? TEST_COOLING_BREAK_MS : COOLING_BREAK_MS; }
+// Both session kinds split their phases; kept as the single switch for the structure.
+function phaseSplit() { return true; }
 
 // POST GAP: every condition ends with a stimulation-OFF window, so the recording
 // always carries a post-stimulation period before the run is closed -- including
@@ -103,8 +107,8 @@ function sessionShape() {
   const base = `${m(emgPhaseMs())} EMG + ${m(rtPhaseMs())} RT`;
   const post = ` + ${m(POST_GAP_MS)} min post gap`;
   if (!phaseSplit()) return `${m(emgPhaseMs() + rtPhaseMs() + POST_GAP_MS)} min: ${base}${post}`;
-  const total = emgPhaseMs() + rtPhaseMs() + 2 * COOLING_BREAK_MS + POST_GAP_MS;
-  return `${m(total)} min: ${base}, each phase split by a ${m(COOLING_BREAK_MS)} min cooling break${post}`;
+  const total = emgPhaseMs() + rtPhaseMs() + 2 * coolingBreakMs() + POST_GAP_MS;
+  return `${m(total)} min: ${base}, each phase split by a ${m(coolingBreakMs())} min cooling break${post}`;
 }
 const RESUME_TEMP_C = 37.5;        // after a thermal shutdown, auto-resume once the RAW reading cools to this (old firmware)
 // Firmware >= surface-model builds trip on the ESTIMATED skin surface (37 C). After such a
@@ -189,20 +193,16 @@ window.addEventListener('load', () => {
   const elDurationVal = document.getElementById('session-duration-val');
   const elTestModeDescription = document.getElementById('test-mode-description');
   if (elTestModeDescription) {
-    elTestModeDescription.textContent = `Test session — bench dry-run (${TEST_EMG_PHASE_MS / 60000} min EMG + ${TEST_RT_PHASE_MS / 60000} min RT per condition; CSV stamped TEST)`;
+    elTestModeDescription.textContent = `Test session — bench dry-run (${TEST_EMG_PHASE_MS / 60000} min EMG + ${TEST_RT_PHASE_MS / 60000} min RT per condition, each split by a ${TEST_COOLING_BREAK_MS / 60000} min cooling break, same pre/post gaps; CSV stamped TEST)`;
   }
   if (elTestModeCb && elDurationVal) {
     const updateDurationLabel = () => {
       const emgMs = elTestModeCb.checked ? TEST_EMG_PHASE_MS : EMG_PHASE_MS;
       const rtMs = elTestModeCb.checked ? TEST_RT_PHASE_MS : RT_PHASE_MS;
       const post = `, then a ${POST_GAP_MS / 60000} min post gap`;
-      if (elTestModeCb.checked) {
-        // Test sessions run their phases unbroken (but end with the post gap like a real one).
-        elDurationVal.textContent = `${(emgMs + rtMs + POST_GAP_MS) / 60000} min (${emgMs / 60000} EMG + ${rtMs / 60000} reaction-time${post}) — TEST`;
-      } else {
-        const total = (emgMs + rtMs + 2 * COOLING_BREAK_MS + POST_GAP_MS) / 60000;
-        elDurationVal.textContent = `${total} min (${emgMs / 60000} EMG + ${rtMs / 60000} reaction-time, each split by a ${COOLING_BREAK_MS / 60000} min cooling break${post})`;
-      }
+      const coolMs = elTestModeCb.checked ? TEST_COOLING_BREAK_MS : COOLING_BREAK_MS;
+      const total = (emgMs + rtMs + 2 * coolMs + POST_GAP_MS) / 60000;
+      elDurationVal.textContent = `${total} min (${emgMs / 60000} EMG + ${rtMs / 60000} reaction-time, each split by a ${coolMs / 60000} min cooling break${post})${elTestModeCb.checked ? ' — TEST' : ''}`;
     };
     elTestModeCb.addEventListener('change', updateDurationLabel);
     updateDurationLabel();
@@ -980,7 +980,7 @@ function postGap(onDone) {
 
 /**
  * @brief Scheduled mid-phase cooling break (real sessions only): stimulation
- *        OFF for COOLING_BREAK_MS, then back on for the phase's second half.
+ *        OFF for coolingBreakMs(), then back on for the phase's second half.
  *        The device layer emits STIM_OFF/HEAT_OFF and NIR_ON/HEAT_ON around it,
  *        so the recording carries physical confirmation of the off-window too.
  */
@@ -993,10 +993,10 @@ function coolingBreak(onDone) {
   if (window.ArduinoLink) ArduinoLink.stop();
   logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'COOL_START', null);
   sendMarker('COOL_START');
-  logToConsole('SYSTEM', `Mid-${runPhase} cooling break (${COOLING_BREAK_MS / 60000} min) — stimulation off.`);
+  logToConsole('SYSTEM', `Mid-${runPhase} cooling break (${coolingBreakMs() / 60000} min) — stimulation off.`);
   showParticipantMessage('Short Break',
     'A short scheduled break.<br>Please stay still and keep resting — the session continues automatically.');
-  runPhaseTimer(COOLING_BREAK_MS, async () => {
+  runPhaseTimer(coolingBreakMs(), async () => {
     recordTemperature('COOL_END');
     logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'COOL_END', null);
     sendMarker('COOL_END');
@@ -1308,7 +1308,7 @@ function abortTrial(reason) {
   pausedForThermal = false;
   resumingThermal = false;
   // An abort mid-break never reaches COOL_END; a stale flag would silence the next
-  // session's task (test sessions have no break to clear it).
+  // session's task until its own first break cleared it.
   inCoolingBreak = false;
   inPostGap = false;
   inPreGap = false;

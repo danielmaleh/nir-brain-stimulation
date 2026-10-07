@@ -7,9 +7,9 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../app.js'), 'utf8');
 
-const constants = ['EMG_PHASE_MS', 'RT_PHASE_MS', 'TEST_EMG_PHASE_MS', 'TEST_RT_PHASE_MS', 'COOLING_BREAK_MS',
+const constants = ['EMG_PHASE_MS', 'RT_PHASE_MS', 'TEST_EMG_PHASE_MS', 'TEST_RT_PHASE_MS', 'COOLING_BREAK_MS', 'TEST_COOLING_BREAK_MS',
   'RESUME_TEMP_C', 'RESUME_SURFACE_C', 'POST_GAP_MS', 'HEATER_TARGET_UPDATE_MS', 'BASE_DELAY_MS', 'JITTER_MAX_MS', 'RESPONSE_WINDOW_MS', 'AUDIO_ATTACK_S'];
-const names = ['emgPhaseMs', 'rtPhaseMs', 'phaseSplit', 'handleKeyPress', 'scheduleNextStimulus', 'triggerStimulus',
+const names = ['emgPhaseMs', 'rtPhaseMs', 'coolingBreakMs', 'phaseSplit', 'handleKeyPress', 'scheduleNextStimulus', 'triggerStimulus',
   'handleMissedResponse', 'startRtPhase', 'coolingBreak', 'resumeRtSecondHalf', 'runPhaseTimer', 'phaseTick',
   'handleThermalShutdown', 'resumeAfterThermal', 'abortTrial', 'logEvent', 'sendMarker',
   'endRtPhase', 'postGap', 'stopHeaterReplay'];

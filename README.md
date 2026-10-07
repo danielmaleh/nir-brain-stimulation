@@ -43,6 +43,8 @@ The device works standalone over USB; no laptop-side runtime is required beyond 
 | **Total in-protocol time** | ~72 min per participant (a 1.5-min stimulation-off pre gap, three 21.5-min conditions, two 3-min rests), plus EEG capping and setup |
 | **Measures** | Continuous EEG (Enobio 32 via NIC2), wrist EMG on EXG channels, auditory reaction time |
 
+A **test session** (checkbox in the app's config panel) keeps this exact structure — pre gap, mid-phase cooling breaks, post gap, rests, identical markers — with 5-min EMG and 5-min RT phases and 1-min cooling breaks, and stamps the CSV `TEST` so a dry run can never pass as participant data.
+
 ### Reaction-time task
 
 A 600 Hz sine tone (10 ms attack, 150 ms decay, generated in the Web Audio API) is presented **5.0 s + a random [0, 2.0] s jitter** after the previous response. The participant presses the spacebar. Each tone opens a **2.0 s response window**; no press is logged as an `OMISSION` and the run continues. A press *before* the tone is a `FALSE_ALARM` and resets the timer. Reaction time is anchored to the *audible* tone onset, not the scheduling call.
