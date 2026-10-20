@@ -43,8 +43,10 @@ let responseTimer = null;       // Response-window timer; fires an OMISSION miss
 // Timing boundaries
 // Each session (condition) is 17 min: a 10-min silent EMG baseline phase followed
 // by a 7-min reaction-time task phase. Stimulation (NIR/heater) runs the whole time.
-const EMG_PHASE_MS = 600000;       // 10 minutes — EMG phase (no tones, no clicks)
-const RT_PHASE_MS = 420000;        // 7 minutes — reaction-time phase (tones + clicks)
+// 2026-10-20: the 10 + 7 min design was replaced by 5 + 5 min with 1-min cooling
+// breaks (the former test-session timing). See docs/protocol_duration_change.md.
+const EMG_PHASE_MS = 5 * 60 * 1000;   // 5 minutes — EMG phase (no tones, no clicks)
+const RT_PHASE_MS = 5 * 60 * 1000;    // 5 minutes — reaction-time phase (tones + clicks)
 
 // TEST SESSION (researcher toggle in the config panel): a shortened bench
 // dry-run — 5 min EMG + 5 min RT per condition instead of 10 + 7. Markers,
@@ -53,8 +55,10 @@ const RT_PHASE_MS = 420000;        // 7 minutes — reaction-time phase (tones +
 // this data can never pass as a real session. The toggle deliberately does NOT
 // touch the thermal cutoff: that lives in firmware (MAX_SAFE_TEMP, compiled),
 // and the page can only VERIFY which build is flashed via the boot BUILD line.
-const TEST_EMG_PHASE_MS = 5 * 60 * 1000;  // 5 minutes
-const TEST_RT_PHASE_MS = 5 * 60 * 1000;   // 5 minutes
+// Test sessions now share the protocol's timing exactly; they differ only in the
+// TEST stamp and in being allowed on a bench firmware build.
+const TEST_EMG_PHASE_MS = EMG_PHASE_MS;
+const TEST_RT_PHASE_MS = RT_PHASE_MS;
 let testModeActive = false;        // latched from the checkbox when a session starts
 function emgPhaseMs() { return testModeActive ? TEST_EMG_PHASE_MS : EMG_PHASE_MS; }
 function rtPhaseMs() { return testModeActive ? TEST_RT_PHASE_MS : RT_PHASE_MS; }
@@ -70,8 +74,8 @@ function rtPhaseMs() { return testModeActive ? TEST_RT_PHASE_MS : RT_PHASE_MS; }
 // condition is unchanged (same total on-time); only the pacing changes.
 // Test sessions split their (shorter) phases the same way, with a 1-min break,
 // so a dry run exercises the same structure and markers as a real session.
-const COOLING_BREAK_MS = 90000;       // 1.5 minutes, stimulation off (real sessions)
-const TEST_COOLING_BREAK_MS = 60000;  // 1 minute (test sessions)
+const COOLING_BREAK_MS = 60000;       // 1 minute, stimulation off
+const TEST_COOLING_BREAK_MS = COOLING_BREAK_MS;
 let inCoolingBreak = false;           // true while a scheduled cooling break runs
 function coolingBreakMs() { return testModeActive ? TEST_COOLING_BREAK_MS : COOLING_BREAK_MS; }
 // Both session kinds split their phases; kept as the single switch for the structure.
@@ -91,6 +95,24 @@ let inPostGap = false;
 // PRE_START/PRE_END (46/47), before the first SESSION_START. Test sessions too.
 const PRE_GAP_MS = 90000;          // 1.5 minutes, stimulation off
 let inPreGap = false;
+
+// BLOCKED-LIGHT CALIBRATION: the very first thing a session does. With the light
+// physically blocked by a card on the device, each condition runs for 30 s (10 Hz,
+// 40 Hz, heating, then off) so every recording carries a per-participant noise
+// reference of the drive electronics with no light reaching the scalp. Then a
+// 10-s window to remove the card, then the pre gap and the experiment proper.
+// Marked BLOCKED_START/END (48/49), BLOCKED_SEG;cond= (50-52), BLOCKED_OFF (53),
+// CARD_REMOVE (54). Temperature rows carry phase BLOCKED and are excluded from the
+// heating replay.
+const BLOCKED_SEGMENTS = ['10 Hz NIR', '40 Hz NIR', 'Heating Control', 'OFF'];
+const BLOCKED_SEG_MS = 30000;
+const CARD_REMOVE_MS = 10000;
+let inBlockedPhase = false;
+
+// SHAM-AWARENESS QUESTION: when a condition's stimulation ends the researcher is
+// prompted (sidebar panel) to ask whether the participant noticed the stimulation
+// and to enter yes / no / don't know. Stored on the run and exported with it.
+let noticePendingRun = null;        // run index awaiting an answer, or null
 
 // HEATING TARGET: the heating control must reproduce, on the DEVICE sensor, what
 // that sensor recorded during this participant's own NIR runs. Every 5 s the
@@ -193,7 +215,7 @@ window.addEventListener('load', () => {
   const elDurationVal = document.getElementById('session-duration-val');
   const elTestModeDescription = document.getElementById('test-mode-description');
   if (elTestModeDescription) {
-    elTestModeDescription.textContent = `Test session — bench dry-run (${TEST_EMG_PHASE_MS / 60000} min EMG + ${TEST_RT_PHASE_MS / 60000} min RT per condition, each split by a ${TEST_COOLING_BREAK_MS / 60000} min cooling break, same pre/post gaps; CSV stamped TEST)`;
+    elTestModeDescription.textContent = `Test session — identical timing and structure to a real session; CSV stamped TEST and allowed on a bench firmware build`;
   }
   if (elTestModeCb && elDurationVal) {
     const updateDurationLabel = () => {
@@ -416,6 +438,9 @@ function ledRunTrajectories() {
   const runs = {};
   for (const e of log) {
     if (!/NIR/.test(e.condition || '') || e.runIndex === currentRunIndex + 1) continue;
+    // Only the run itself: not the blocked-light calibration, pre gap or rests,
+    // which share runIndex/condition bookkeeping but are not the NIR trajectory.
+    if (!['EMG', 'RT', 'POST'].includes(e.phase)) continue;
     const r = runs[e.runIndex] || (runs[e.runIndex] = { t0: null, pts: [] });
     if (r.t0 === null && (e.event === 'EMG_START' || e.event === 'TEMPERATURE')) r.t0 = e.elapsedMs;
     if (e.event === 'TEMPERATURE' && Number.isFinite(e.tempC) && r.t0 !== null) r.pts.push([e.elapsedMs - r.t0, e.tempC]);
@@ -755,8 +780,167 @@ function startTrial() {
 
   logToConsole('SYSTEM', `STARTING SESSION: ${participantId} | Session: ${sessionId} | Sequence: [${sessionConditions.join(', ')}]`);
 
-  // Stimulation-off pre gap, then the first session (condition).
-  preGap(startRun);
+  // Blocked-light calibration, card removal, stimulation-off pre gap, then run 1.
+  blockedLightPhase(() => preGap(startRun));
+}
+
+/**
+ * @brief Per-participant noise reference: each condition for BLOCKED_SEG_MS with
+ *        the light physically blocked, then a timed prompt to remove the card.
+ *        Runs on pauseTimer like the pre gap, so abort cancels it; no run is open.
+ */
+function blockedLightPhase(onDone) {
+  inBlockedPhase = true;
+  inPausePhase = true;
+  currentTrialData = null;
+  currentSessionData.blockedPhase = { segments: BLOCKED_SEGMENTS.slice(), segmentMs: BLOCKED_SEG_MS, cardRemoveMs: CARD_REMOVE_MS };
+  recordTemperature('BLOCKED_START');
+  sendMarker('BLOCKED_START');
+  logToConsole('SYSTEM', `BLOCKED-LIGHT CALIBRATION — make sure the card is covering the light. ${BLOCKED_SEGMENTS.join(', ')}: ${BLOCKED_SEG_MS / 1000} s each.`);
+  let i = 0;
+  let segEndsAt = 0;
+  const startSegment = () => {
+    const seg = BLOCKED_SEGMENTS[i];
+    segEndsAt = performance.now() + BLOCKED_SEG_MS;
+    recordTemperature('BLOCKED_SEG_' + seg.replace(/\W+/g, '_').toUpperCase());
+    if (seg === 'OFF') {
+      if (window.ArduinoLink) ArduinoLink.stop();
+      sendMarker('BLOCKED_OFF');
+    } else {
+      sendMarker('BLOCKED_SEG;cond=' + condCode(seg));
+      if (window.ArduinoLink) ArduinoLink.runCondition(seg);
+    }
+    showParticipantMessage('Calibration — Light Blocked',
+      `<strong>Card ON the device.</strong> Noise reference, ${BLOCKED_SEG_MS / 1000} s per condition.<br>` +
+      `Now: <strong>${seg}</strong> (${i + 1} / ${BLOCKED_SEGMENTS.length}). Participant rests with eyes closed.`);
+  };
+  const finishSegments = () => {
+    if (window.ArduinoLink) ArduinoLink.stop();
+    recordTemperature('BLOCKED_END');
+    sendMarker('BLOCKED_END');
+    sendMarker('CARD_REMOVE');
+    recordTemperature('CARD_REMOVE');
+    logToConsole('SYSTEM', `Calibration done — REMOVE THE CARD now (${CARD_REMOVE_MS / 1000} s).`);
+    showParticipantMessage('Remove the Card',
+      `<strong style="font-size:1.3rem;">Remove the blocking card from the device now.</strong><br>The experiment starts automatically in ${CARD_REMOVE_MS / 1000} s.`);
+    const endsAt = performance.now() + CARD_REMOVE_MS;
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((endsAt - performance.now()) / 1000));
+      elStatsTimeLeft.textContent = `Card: ${left}s`;
+      if (left > 0) return;
+      clearInterval(pauseTimer);
+      inBlockedPhase = false;
+      inPausePhase = false;
+      onDone();
+    };
+    tick();
+    pauseTimer = setInterval(tick, 250);
+  };
+  startSegment();
+  const tick = () => {
+    const left = Math.max(0, Math.ceil((segEndsAt - performance.now()) / 1000));
+    elStatsTimeLeft.textContent = `Blocked ${BLOCKED_SEGMENTS[i]}: ${left}s`;
+    if (left > 0) return;
+    i++;
+    if (i < BLOCKED_SEGMENTS.length) { startSegment(); return; }
+    clearInterval(pauseTimer);
+    finishSegments();
+  };
+  pauseTimer = setInterval(tick, 250);
+}
+
+/** Show the researcher-side prompt to ask whether the participant noticed the stimulation. */
+function promptNoticeQuestion(runIdx, condition) {
+  noticePendingRun = runIdx;
+  const panel = document.getElementById('notice-panel');
+  if (!panel) return;
+  document.getElementById('notice-run-label').textContent = `Block ${runIdx + 1} (${condition})`;
+  panel.style.display = 'block';
+  logToConsole('SYSTEM', `ASK THE PARTICIPANT: "Did you notice the stimulation during this block?" — enter the answer in the sidebar (block ${runIdx + 1}).`);
+}
+
+function hideNoticePrompt() {
+  const panel = document.getElementById('notice-panel');
+  if (panel) panel.style.display = 'none';
+}
+
+/** Record yes / no / dont_know for the pending (or given) run and export it with the run. */
+function recordNoticeAnswer(answer, runIdx = noticePendingRun) {
+  if (runIdx === null || runIdx === undefined) return;
+  currentSessionData.noticeAnswers = currentSessionData.noticeAnswers || {};
+  currentSessionData.noticeAnswers[runIdx + 1] = answer;
+  const run = currentSessionData.runs[runIdx];
+  if (run) run.noticedStimulation = answer;
+  recordTemperature('STIM_NOTICED_' + answer.toUpperCase());
+  logToConsole('SYSTEM', `Noticed stimulation (block ${runIdx + 1}): ${answer}`);
+  if (runIdx === noticePendingRun) { noticePendingRun = null; hideNoticePrompt(); }
+  persistProgress();
+  saveSessionToStorage();
+}
+
+/** Mark any unanswered blocks at session end so the export never silently omits them. */
+function finalizeNoticeAnswers() {
+  currentSessionData.noticeAnswers = currentSessionData.noticeAnswers || {};
+  currentSessionData.runs.forEach((run, idx) => {
+    if (!run.noticedStimulation) {
+      run.noticedStimulation = 'unanswered';
+      currentSessionData.noticeAnswers[idx + 1] = 'unanswered';
+    }
+  });
+  noticePendingRun = null;
+  hideNoticePrompt();
+}
+
+/** Build the behavioural CSV text from a session object (also used by the history buttons). */
+function sessionCSV(data) {
+  const safe = (v) => String(v == null ? '' : v).replace(/[\r\n,]+/g, ' ');
+  let csvContent = '';
+  csvContent += `Experiment: NIR tPBM Cognitive Motor Performance Task\r\n`;
+  if (data.testMode) csvContent += `*** TEST SESSION — bench dry-run, NOT participant data ***\r\n`;
+  csvContent += `Participant ID: ${safe(data.participantId)}\r\n`;
+  csvContent += `Session ID: ${safe(data.sessionId)}\r\n`;
+  csvContent += `Generated Sequence: ${safe(data.conditionsSequence.join(' | '))}\r\n`;
+  csvContent += `Timestamp: ${new Date(data.startTime).toISOString()}\r\n`;
+  (data.runs || []).forEach((run, idx) => {
+    csvContent += `Noticed stimulation (block ${idx + 1} ${safe(run.condition)}): ${safe(run.noticedStimulation || 'unanswered')}\r\n`;
+    if (run.heatingTargetSource) csvContent += `Heating target source (block ${idx + 1}): ${safe(run.heatingTargetSource)}\r\n`;
+  });
+  csvContent += `--------------------------------------------------\r\n`;
+  csvContent += `SessionIndex,Condition,RelativeTimeSec,EventType,LatencyMs,ContactTempC\r\n`;
+  (data.runs || []).forEach((run, runIdx) => {
+    run.logs.forEach(log => {
+      const temp = (log.tempC === null || log.tempC === undefined) ? '--' : log.tempC;
+      csvContent += `${runIdx + 1},${safe(run.condition)},${log.timeSec},${log.eventType},${log.latencyMs !== null ? log.latencyMs : '--'},${temp}\r\n`;
+    });
+  });
+  return csvContent;
+}
+
+function triggerDownload(filename, text, mime) {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/**
+ * @brief Download everything for a finished (or aborted) session at once: the
+ *        behavioural CSV, the temperature CSV and a JSON with the whole session
+ *        object (answers, heating target source, blocked-phase settings). Chrome
+ *        asks once per site to allow multiple automatic downloads — accept it.
+ */
+function exportSessionFiles(data) {
+  const clean = value => String(value ?? '').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+  const stem = `tpbm_${clean(data.participantId)}_${clean(data.sessionId)}_${data.startTime}`;
+  triggerDownload(`${stem}_session.csv`, sessionCSV(data), 'text/csv;charset=utf-8;');
+  if (data.temperatureLogging) triggerDownload(`${stem}_temperature.csv`, temperatureCSV(data), 'text/csv;charset=utf-8;');
+  triggerDownload(`${stem}_full.json`, JSON.stringify(data, null, 1), 'application/json');
+  logToConsole('SYSTEM', `Exported ${stem}_session.csv${data.temperatureLogging ? ', _temperature.csv' : ''} and _full.json to the Downloads folder.`);
 }
 
 /**
@@ -812,7 +996,7 @@ function recordTemperature(event, tempC = null, unixMs = Date.now()) {
     tempC,
     runIndex: currentRunIndex + 1,
     condition: sessionConditions[currentRunIndex] || '',
-    phase: inPreGap ? 'PRE' : inPausePhase ? 'REST' : (runPhase || 'TRANSITION'),
+    phase: inBlockedPhase ? 'BLOCKED' : inPreGap ? 'PRE' : inPausePhase ? 'REST' : (runPhase || 'TRANSITION'),
     thermalPaused: pausedForThermal
   });
   if (event === 'TEMPERATURE') {
@@ -967,6 +1151,7 @@ function postGap(onDone) {
   logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'POST_START', null);
   sendMarker('POST_START');
   logToConsole('SYSTEM', `Post gap (${POST_GAP_MS / 60000} min) — stimulation off, recording continues.`);
+  promptNoticeQuestion(currentRunIndex, sessionConditions[currentRunIndex]);
   showParticipantMessage('Almost Done',
     'Stimulation has finished for this block.<br>Please keep resting quietly with your eyes closed.');
   runPhaseTimer(POST_GAP_MS, () => {
@@ -1164,7 +1349,8 @@ function endRun() {
     reactionTimes: [...reactionTimes],
     falseAlarmsCount: falseAlarmsCount,
     missedCount: missedCount,
-    heatingTargetSource: currentCondition === 'Heating Control' ? heaterTargetSource : ''
+    heatingTargetSource: currentCondition === 'Heating Control' ? heaterTargetSource : '',
+    noticedStimulation: (currentSessionData.noticeAnswers || {})[currentRunIndex + 1] || null
   });
 
   // Persist every completed session immediately (not just at the very end).
@@ -1254,8 +1440,10 @@ function completeSession() {
 
   logToConsole('SYSTEM', `ALL RUNS COMPLETED. SESSION FINISHED.`);
 
-  // Save complete session data to storage
+  finalizeNoticeAnswers();
+  // Save complete session data to storage, then download every file automatically.
   saveSessionToStorage();
+  exportSessionFiles(currentSessionData);
 
   // Show nice completion details in the participant view
   elInfoOverlay.style.display = 'block';
@@ -1281,7 +1469,7 @@ function completeSession() {
   document.getElementById('overlay-instruction').innerHTML = `
     Session data saved successfully. You can download the combined session sheet or individual run files.<br>
     ${runsSummaryHtml}
-    <p style="margin-top: 1rem;"><strong style="color: var(--color-success);">Click 'CSV' in the panel history to export the full combined log.</strong></p>
+    <p style="margin-top: 1rem;"><strong style="color: var(--color-success);">Session CSV, temperature CSV and full JSON were downloaded automatically (also available from the history panel).</strong></p>
   `;
 
   // Reset inputs
@@ -1312,6 +1500,7 @@ function abortTrial(reason) {
   inCoolingBreak = false;
   inPostGap = false;
   inPreGap = false;
+  inBlockedPhase = false;
   stopHeaterReplay();
 
   // If aborted during an active run, log the abort in the run
@@ -1337,7 +1526,9 @@ function abortTrial(reason) {
 
   logToConsole('ERROR', `Session aborted: ${reason}`);
 
+  finalizeNoticeAnswers();
   saveSessionToStorage();
+  exportSessionFiles(currentSessionData);
   resetControlInterface();
 }
 
@@ -1523,6 +1714,14 @@ function downloadTemperatureCSV(storageKey) {
 }
 
 window.downloadCSV = function(storageKey) {
+  const data = JSON.parse(localStorage.getItem(storageKey));
+  if (!data) return;
+  const cleanId = data.participantId.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+  const cleanSession = data.sessionId.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+  triggerDownload(`tpbm_session_${cleanId}_${cleanSession}.csv`, sessionCSV(data), 'text/csv;charset=utf-8;');
+};
+
+window.downloadCSV_legacy = function(storageKey) {
   const data = JSON.parse(localStorage.getItem(storageKey));
   if (!data) return;
 

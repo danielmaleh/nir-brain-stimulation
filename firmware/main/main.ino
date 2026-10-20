@@ -111,8 +111,29 @@ const float HEATER_TARGET_MAX = MAX_SAFE_TEMP - 1.0; // never within 1 C of the 
 // The DS18B20 runs at 10-bit resolution (0.25 C steps), so the derivative term
 // is noisy; Kd stays 0 (i.e. PI control) and is smoothed by an EMA when enabled.
 // Against a 0.74 C signal, 0.25 C quantisation makes derivative action useless.
-const float HEATER_KP = 0.035;             // duty per +1 C of error
-const float HEATER_KI = 0.00014;           // duty per (C*s); = Kp/Ti with Ti = tau = 253 s
+// 2026-10-20 RETUNE FOR TRAJECTORY TRACKING. The target is no longer a fixed
+// set point: the host replays, every 5 s, the device-temperature trajectory the
+// NIR runs produced (a ~3 C/min ramp that then levels off). The 0.035 Kp tuned
+// for a 0.74 C step commanded only 3.5% duty per degree of error, so the heater
+// fell minutes behind a ramp it could otherwise have kept up with. Now:
+//   - FEEDFORWARD from the trajectory itself: holding (target - baseline) needs
+//     (target - baseline) / K duty, and following a target slope needs
+//     slope * tau / K on top (K ~= 51 C per unit duty, tau ~= 253 s, both from
+//     the 2026-08-05 step response). This alone puts the heater at its cap
+//     whenever the NIR ramped faster than the heater physically can.
+//   - Kp 0.25: the feedback term saturates the cap at 0.8 C of lag instead of
+//     5.7 C, and Ki 0.002 (Ti = 125 s) trims the residual.
+//   - Rate damping on the MEASURED 40-s slope when within 1 C of the target, so
+//     the sensor lag (~40 s) does not turn an arriving ramp into an overshoot.
+// HEATER_MAX_DUTY stays 0.20 by design: at 20% the heater's initial rise is
+// ~2.4 C/min and its plateau ~+10 C, against NIR ramps of ~3 C/min and +10-14 C
+// on the device sensor, so a residual shortfall of a few degrees at the end of
+// a 2.5-min block is a POWER limit, not a controller one.
+const float HEATER_KP = 0.25;              // duty per +1 C of error
+const float HEATER_KI = 0.002;             // duty per (C*s)
+const float HEATER_PROCESS_GAIN = 51.0;    // C of steady-state rise per unit duty (2026-08-05 fit)
+const float HEATER_TAU_S = 253.0;          // thermal time constant (2026-08-05 fit)
+const float HEATER_KRATE = 1.5;            // duty per (C/s) of measured slope, damping near the target
 const float HEATER_KD = 0.00;              // duty per (C/s); 0 = PI control (see note)
 const float HEATER_D_FILTER = 0.80;        // EMA smoothing for the derivative term [0..1)
 const float HEATER_MAX_DUTY = 0.20;        // hard cap on heater duty (safety-limit an over-powered heater)
@@ -137,12 +158,17 @@ float heaterDuty = 0.0;
 unsigned long heaterLastPidMs = 0;
 unsigned long heaterWindowStartMs = 0;
 unsigned long heaterLastPidLogMs = 0;
+float heaterBaselineC = 0.0;         // device temperature when the heating run started
+float heaterPrevTargetC = 0.0;       // previous H target, for the target-slope estimate
+unsigned long heaterLastTargetMs = 0;
+float heaterTargetSlopeCps = 0.0;    // EMA of the commanded target's slope (C/s)
+float heaterFeedforward = 0.0;       // last feedforward duty (logged)
 
 // Max stimulation time. This is a SAFETY CEILING, not the run length: the host
 // (task page) starts/stops each run over serial, so it normally ends the run long
 // before this. The ceiling only fires if the host never sends stop (e.g. a crash),
-// so the light/heater can never be left on indefinitely. Set above the 17-min
-// session (10 min EMG + 7 min reaction-time) with margin.
+// so the light/heater can never be left on indefinitely. Far above any single
+// stimulation block (2.5 min between cooling breaks since 2026-10-20).
 const unsigned long STIMULATION_DURATION_MS = 1080000; // 18 minutes (host ends runs well before this)
 const unsigned long REST_DURATION_MS = 180000;         // 3 minutes of rest between conditions
 
@@ -677,6 +703,11 @@ void resetHeaterPID() {
   heaterPrevError = 0.0;
   heaterDerivFiltered = 0.0;
   heaterDuty = 0.0;
+  heaterBaselineC = currentTemp;
+  heaterPrevTargetC = heaterTargetTemp;
+  heaterLastTargetMs = 0;
+  heaterTargetSlopeCps = 0.0;
+  heaterFeedforward = 0.0;
   heaterLastPidMs = millis();
   heaterWindowStartMs = millis();
   heaterLastPidLogMs = millis();
@@ -707,9 +738,19 @@ void runHeaterPID() {
     // the new value ONLY if it does not drive the output further into a rail it
     // is already against. A cold start saturates at HEATER_MAX_DUTY for minutes;
     // integrating through that is what produced the old overshoot.
+    // Feedforward: the duty the trajectory itself calls for (see the gain notes).
+    float ff = (heaterTargetTemp - heaterBaselineC) / HEATER_PROCESS_GAIN
+             + heaterTargetSlopeCps * HEATER_TAU_S / HEATER_PROCESS_GAIN;
+    if (ff < 0.0) ff = 0.0;
+    if (ff > HEATER_MAX_DUTY) ff = HEATER_MAX_DUTY;
+    heaterFeedforward = ff;
+    // Damp on the measured slope only when close to the target, so an arriving
+    // ramp is braked before the sensor lag turns it into an overshoot.
+    float damping = (error < 1.0 && surfaceSlopeCps > 0.0) ? HEATER_KRATE * surfaceSlopeCps : 0.0;
+
     float candidateIntegral = heaterIntegral + error * dt;
-    float candidate = HEATER_KP * error + HEATER_KI * candidateIntegral
-                      + HEATER_KD * heaterDerivFiltered;
+    float candidate = ff + HEATER_KP * error + HEATER_KI * candidateIntegral
+                      + HEATER_KD * heaterDerivFiltered - damping;
     bool pushingUpWhileHigh = (candidate > HEATER_MAX_DUTY) && (error > 0.0);
     bool pushingDownWhileLow = (candidate < 0.0) && (error < 0.0);
     if (!pushingUpWhileHigh && !pushingDownWhileLow) {
@@ -724,7 +765,7 @@ void runHeaterPID() {
       if (heaterIntegral < -integralMax) heaterIntegral = -integralMax;
     }
 
-    float output = HEATER_KP * error + HEATER_KI * heaterIntegral + HEATER_KD * heaterDerivFiltered;
+    float output = ff + HEATER_KP * error + HEATER_KI * heaterIntegral + HEATER_KD * heaterDerivFiltered - damping;
     if (output < 0.0) output = 0.0;
     if (output > HEATER_MAX_DUTY) output = HEATER_MAX_DUTY; // hard safety cap on heater power
     heaterDuty = output;
@@ -738,7 +779,9 @@ void runHeaterPID() {
       Serial.print(F(","));
       Serial.print(currentTemp, 2);
       Serial.print(F(","));
-      Serial.println(heaterTargetTemp, 2);
+      Serial.print(heaterTargetTemp, 2);
+      Serial.print(F(","));            // 5th field: feedforward duty %, to separate tracking from power limits
+      Serial.println((int)(heaterFeedforward * 100.0 + 0.5));
     }
   }
 
@@ -909,6 +952,15 @@ void handleSerialCommands() {
         float requested = Serial.parseFloat();
         if (requested < HEATER_TARGET_MIN) requested = HEATER_TARGET_MIN;
         if (requested > HEATER_TARGET_MAX) requested = HEATER_TARGET_MAX;
+        // Slope of the commanded trajectory (the host sends a target every 5 s
+        // while replaying), EMA-smoothed; feeds the heater feedforward.
+        unsigned long nowMs = millis();
+        if (heaterLastTargetMs > 0 && nowMs > heaterLastTargetMs + 500) {
+          float raw = (requested - heaterPrevTargetC) / ((nowMs - heaterLastTargetMs) / 1000.0);
+          heaterTargetSlopeCps = 0.5 * heaterTargetSlopeCps + 0.5 * raw;
+        }
+        heaterPrevTargetC = requested;
+        heaterLastTargetMs = nowMs;
         heaterTargetTemp = requested;
         Serial.print(micros());
         Serial.print(F(",HEATER_TARGET,"));
