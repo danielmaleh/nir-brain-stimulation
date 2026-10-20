@@ -23,6 +23,7 @@ const context = vm.createContext({
   sessionActive: true, trialRunning: false, inPausePhase: false,
   pausedForThermal: false, resumingThermal: false, awaitingResponse: false,
   inCoolingBreak: false, inPostGap: false, inPreGap: false, heaterReplayTimer: null,
+  inBlockedPhase: false, noticePendingRun: null, finalizeNoticeAnswers() {}, exportSessionFiles() {}, hideNoticePrompt() {}, promptNoticeQuestion() {},
   currentTrialData: null, sessionTimer: null, stimulusTimer: null, responseTimer: null, pauseTimer: null,
   clearInterval() {}, clearTimeout() {}, setTimeout() {},
   window: {}, console, updateTempMonitor() {}, resumeAfterThermal() {},

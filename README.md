@@ -38,12 +38,13 @@ The device works standalone over USB; no laptop-side runtime is required beyond 
 | **Participants** | 20 healthy adults, one session each |
 | **Design** | Within-subject; the three conditions run in a per-participant randomised order |
 | **Conditions** | `Heating Control` · `10 Hz NIR` · `40 Hz NIR` |
-| **Per condition** | 21.5 min — a 10-min silent EMG-baseline phase, then a 7-min reaction-time phase, each split at its midpoint by a 1.5-min cooling break (stimulation off), then a 1.5-min stimulation-off post gap that ends every condition. Stimulation is on for all 17 task minutes. |
+| **Per condition** | 13.5 min — a 5-min silent EMG-baseline phase, then a 5-min reaction-time phase, each split at its midpoint by a 1-min cooling break (stimulation off), then a 1.5-min stimulation-off post gap that ends every condition. Stimulation is on for all 10 task minutes. (Changed 2026-10-20 from 10 + 7 min — see `docs/protocol_duration_change.md`.) |
 | **Rest between conditions** | Configurable, default 3 min |
-| **Total in-protocol time** | ~72 min per participant (a 1.5-min stimulation-off pre gap, three 21.5-min conditions, two 3-min rests), plus EEG capping and setup |
-| **Measures** | Continuous EEG (Enobio 32 via NIC2), wrist EMG on EXG channels, auditory reaction time |
+| **Total in-protocol time** | ~50 min per participant (a 2.2-min blocked-light calibration, a 1.5-min stimulation-off pre gap, three 13.5-min conditions, two 3-min rests), plus EEG capping and setup |
+| **Measures** | Continuous EEG (Enobio 32 via NIC2), wrist EMG on EXG channels, auditory reaction time, and a per-block sham-awareness answer (yes / no / don't know, asked by the experimenter when each block's stimulation ends) |
+| **Blocked-light calibration** | Before the pre gap, with a card physically covering the light: 30 s each of 10 Hz, 40 Hz, heating and off, as a per-participant noise reference for the drive electronics; then a 10-s window to remove the card |
 
-A **test session** (checkbox in the app's config panel) keeps this exact structure — pre gap, mid-phase cooling breaks, post gap, rests, identical markers — with 5-min EMG and 5-min RT phases and 1-min cooling breaks, and stamps the CSV `TEST` so a dry run can never pass as participant data.
+A **test session** (checkbox in the app's config panel) is identical in timing, structure and markers; it only stamps the CSV `TEST` so a dry run can never pass as participant data, and it is the only kind of session the app allows on a bench firmware build.
 
 ### Reaction-time task
 
@@ -59,11 +60,11 @@ A 600 Hz sine tone (10 ms attack, 150 ms decay, generated in the Web Audio API) 
 | Pulse frequencies | 10.00 Hz and 40.00 Hz (Timer1 CTC, prescaler 64) |
 | Duty cycle | 50 % |
 | Illumination area | ~4 cm² |
-| Exposure per condition | 17 min (1020 s) light-on, delivered as 4 blocks separated by two 1.5-min cooling breaks (same total energy; pacing keeps skin temperature down) |
+| Exposure per condition | 10 min (600 s) light-on, delivered as four 2.5-min blocks separated by 1-min cooling breaks (pacing keeps skin temperature down) |
 | Skin-contact temperature | Hard latching cut-off at an **estimated skin-surface temperature of 37.0 °C** (40 °C limit minus a 3 °C margin covering the estimate's worst-case error), with the raw sensor reading ≥ 40.0 °C as a backstop. The DS18B20 sits behind the contact surface and reads several degrees low and ~90 s late during a ramp, so the firmware estimates the surface from a per-temperature-range gap table plus the reading's slope — see `analysis/thermal/fit_surface_model.py`, which fits the table from a bench run with a reference probe at the contact point and must be re-run whenever the sensor, LED array or heater is remounted. |
-| Heating-control set point | Replays, on the device sensor, the device-temperature trajectory recorded during the same session's NIR runs (mean of the preceding NIR runs at the same offset into the run, refreshed every 5 s); falls back to the calibrated profile (baseline + fixed rise) if Heating is the first condition. PID-regulated, heater duty capped at 20 % |
+| Heating-control set point | Replays, on the device sensor, the device-temperature trajectory recorded during the same session's NIR runs (mean of the preceding NIR runs at the same offset into the run, refreshed every 5 s); falls back to the calibrated profile (baseline + fixed rise) if Heating is the first condition. Tracked by a feedforward + PI controller (`HEATER_PID` telemetry carries the feedforward duty), heater duty capped at 20 % — at that cap the heater's plateau is ~+10 °C on the device sensor, so a residual shortfall against a faster NIR ramp is a power limit, not a control one |
 
-> **Before running participants, measure the delivered irradiance at the scalp with a calibrated power meter** and compute the per-condition fluence as `irradiance × 1020 s`. Confirm the result against your ethics-approved dose and the published tPBM window (0.3–3 J/cm² useful range, ~5–100 mW/cm² irradiance — see References). Do not infer the dose from the drive current.
+> **Before running participants, measure the delivered irradiance at the scalp with a calibrated power meter** and compute the per-condition fluence as `irradiance × 600 s` (at the nominal ~21 mW/cm² — 84 mW over ~4 cm² — that is ~12.6 J/cm², above the window below, so the measured irradiance decides). Confirm the result against your ethics-approved dose and the published tPBM window (0.3–3 J/cm² useful range, ~5–100 mW/cm² irradiance — see References). Do not infer the dose from the drive current.
 
 Non-negotiable safety properties, all enforced in firmware and verified by `firmware/safety_test/`:
 
@@ -182,9 +183,9 @@ Markers are integers because NIC2 does not record string markers. The codebook i
 | `15` | SESSION_END | Heating Control | `SESSION_END;cond=Heating` | task page | Session ends, stimulation off |
 | `16` | SESSION_END | 10 Hz NIR | `SESSION_END;cond=10Hz` | task page | Session ends |
 | `17` | SESSION_END | 40 Hz NIR | `SESSION_END;cond=40Hz` | task page | Session ends |
-| `20` | EMG_START | — | `EMG_START` | task page | 10-min silent EMG-baseline phase begins (stimulation on, no tones) |
+| `20` | EMG_START | — | `EMG_START` | task page | 5-min silent EMG-baseline phase begins (2.5 + 1 cool + 2.5; stimulation on, no tones) |
 | `21` | EMG_END | — | `EMG_END` | task page | EMG phase ends |
-| `22` | RT_START | — | `RT_START` | task page | 7-min reaction-time phase begins |
+| `22` | RT_START | — | `RT_START` | task page | 5-min reaction-time phase begins (2.5 + 1 cool + 2.5) |
 | `23` | RT_END | — | `RT_END` | task page | Reaction-time phase ends |
 | `29` | STIM_OFF | — | `STIM_OFF` | device | Stimulation block ended or aborted (NIR and heater off) |
 | `31` | NIR_ON | 10 Hz NIR | `NIR_ON;cond=10Hz` | device | NIR light physically ON — 850 nm @ 10 Hz, 50 % duty |
@@ -199,6 +200,13 @@ Markers are integers because NIC2 does not record string markers. The codebook i
 | `45` | POST_END | — | `POST_END` | task page | Post gap over; `SESSION_END` follows |
 | `46` | PRE_START | — | `PRE_START` | task page | Stimulation-off pre gap begins — once, before the first condition's `SESSION_START` |
 | `47` | PRE_END | — | `PRE_END` | task page | Pre gap over; the first `SESSION_START` follows |
+| `48` | BLOCKED_START | — | `BLOCKED_START` | task page | Blocked-light calibration begins (card on the device) |
+| `49` | BLOCKED_END | — | `BLOCKED_END` | task page | Blocked-light calibration over |
+| `50` | BLOCKED_SEG | Heating Control | `BLOCKED_SEG;cond=Heating` | task page | 30-s blocked heating segment |
+| `51` | BLOCKED_SEG | 10 Hz NIR | `BLOCKED_SEG;cond=10Hz` | task page | 30-s blocked 10 Hz segment (device `NIR_ON` 31 follows) |
+| `52` | BLOCKED_SEG | 40 Hz NIR | `BLOCKED_SEG;cond=40Hz` | task page | 30-s blocked 40 Hz segment (device `NIR_ON` 32 follows) |
+| `53` | BLOCKED_OFF | — | `BLOCKED_OFF` | task page | 30-s blocked stimulation-off segment |
+| `54` | CARD_REMOVE | — | `CARD_REMOVE` | task page | 10-s window to remove the card; `PRE_START` follows |
 | `99` | SAFETY_TRIP | — | `SAFETY_TRIP` | device | 40 °C skin-temperature cut-off latched; all stimulation force-stopped |
 
 Condition-bearing events are encoded as **base code + condition offset** (`Heating` = 0, `10Hz` = 1, `40Hz` = 2), which is why `30` is deliberately unused — the heating control emits `HEAT_ON` (34) instead of a `NIR_ON`. The arithmetic can still *produce* 30 (`NIR_ON` + Heating), which is a contradiction, so the bridge rejects it as invalid rather than writing it. A `cond=` that is missing or misspelt is likewise rejected, never defaulted to offset 0 — silently relabelling a 10 Hz run as the heating arm is unrecoverable after the fact. "Task page" codes originate in the browser app; "device" codes are derived from Arduino serial telemetry, so `11` (the task says stimulation started) and `31` (the device confirms the LED is pulsing) are independent confirmations.

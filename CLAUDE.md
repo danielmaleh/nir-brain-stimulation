@@ -9,7 +9,7 @@ The goal is to build a custom Arduino-controlled head-mounted device that delive
 ## Research Context
 
 - **Institution**: EPFL (researcher: Daniel Elmaleh, daniel.elmaleh@epfl.ch)
-- **Participants**: 20 healthy adults, single 30-minute session each
+- **Participants**: 20 healthy adults, single ~50-minute session each (see `docs/protocol_duration_change.md`)
 - **Design**: Within-subject, 3 conditions in randomized order:
   1. **Heating control** — skin warming only, no NIR light (separates light effect from warmth sensation)
   2. **10 Hz NIR** — 850 nm LED pulsed at 10 Hz, 50% duty cycle
@@ -23,11 +23,11 @@ The goal is to build a custom Arduino-controlled head-mounted device that delive
 | Wavelength | 850 nm |
 | Target fluence | ~1.25 J/cm² |
 | Illumination area | ~4 cm² |
-| Total energy per condition | ~5 J |
+| Total energy per condition | ~50 J nominal (84 mW × 600 s); the 2026-10 protocol delivers 10 min per condition |
 | Average optical power | ~84 mW |
 | Peak optical power | ~168 mW |
 | Duty cycle | 50% |
-| Exposure duration | ~1 minute per condition |
+| Exposure duration | 10 min per condition (four 2.5-min blocks with 1-min cooling breaks) — the ~1.25 J/cm² row above dates from a 1-min design; fluence is irradiance × 600 s and must be set from the measured irradiance |
 
 ## Hardware (Ordered/In Use)
 

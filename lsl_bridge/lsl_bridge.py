@@ -55,9 +55,9 @@ SIMPLE_CODES = {
     "RESPONSE": 2,      # spacebar within the response window
     "FALSE_ALARM": 3,   # spacebar before the tone (anticipation)
     "OMISSION": 4,      # no press within the response window
-    "EMG_START": 20,    # 10-min EMG baseline phase begins
+    "EMG_START": 20,    # 5-min EMG baseline phase begins (2.5 + 1-min cooling break + 2.5)
     "EMG_END": 21,      # EMG phase ends
-    "RT_START": 22,     # 7-min reaction-time phase begins
+    "RT_START": 22,     # 5-min reaction-time phase begins (2.5 + 1-min cooling break + 2.5)
     "RT_END": 23,       # reaction-time phase ends
     "SESSION_PAUSE": 40,  # session frozen by a thermal shutdown (>40 C)
     "SESSION_RESUME": 41, # session resumed after the temperature recovered (<=37.5 C)
@@ -67,6 +67,10 @@ SIMPLE_CODES = {
     "POST_END": 45,     # post gap over; SESSION_END follows
     "PRE_START": 46,    # stimulation-off pre gap begins (once, before the first condition's SESSION_START)
     "PRE_END": 47,      # pre gap over; the first SESSION_START follows
+    "BLOCKED_START": 48, # blocked-light calibration begins (card on the device; noise reference)
+    "BLOCKED_END": 49,   # blocked-light calibration over
+    "BLOCKED_OFF": 53,   # blocked-light calibration: 30-s stimulation-off segment
+    "CARD_REMOVE": 54,   # 10-s window to remove the blocking card; PRE_START follows
     # HARDWARE (from the device telemetry):
     "STIM_OFF": 29,     # device stimulation block ended/aborted
     "HEAT_ON": 34,      # heater element energised (heating condition)
@@ -80,6 +84,7 @@ SIMPLE_CODES = {
 #   NIR_ON:        31 10Hz, 32 40Hz  (30 would be "NIR_ON Heating", which is a
 #                  contradiction - the heating arm emits no NIR. See INVALID_CODES.)
 COND_CODES = {
+    "BLOCKED_SEG": 50,   # 50 Heating, 51 10Hz, 52 40Hz: 30-s blocked-light segment of that condition
     "SESSION_START": 10,
     "SESSION_END": 15,
     "NIR_ON": 30,
@@ -241,6 +246,7 @@ async def main():
     print("[bridge]   COOL_START=42 COOL_END=43 (scheduled mid-phase cooling breaks)", flush=True)
     print("[bridge]   POST_START=44 POST_END=45 (stimulation-off post gap ending every condition)", flush=True)
     print("[bridge]   PRE_START=46 PRE_END=47 (stimulation-off pre gap before the first condition)", flush=True)
+    print("[bridge]   BLOCKED_START=48 BLOCKED_END=49 BLOCKED_SEG=50/51/52 (Heating/10Hz/40Hz) BLOCKED_OFF=53 CARD_REMOVE=54", flush=True)
     print("[bridge]   NIR_ON=31/32 (10Hz/40Hz)  STIM_OFF=29  HEAT_ON=34 HEAT_OFF=35  SAFETY_TRIP=99", flush=True)
 
     print(f"[bridge]   unrecognised markers -> {UNKNOWN_CODE} (never 0: 0 is "

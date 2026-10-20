@@ -58,11 +58,25 @@
         </div>
         <div class="input-group" style="margin-top: 0.5rem;">
           <label for="temperature-debug" style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; text-transform: none;">
-            <input type="checkbox" id="temperature-debug" style="width: auto; margin: 0;">
-            <span>Debug: record temperature with computer UTC time</span>
+            <input type="checkbox" id="temperature-debug" checked style="width: auto; margin: 0;">
+            <span>Record temperature log (computer UTC time) — downloaded automatically at session end</span>
           </label>
-          <small id="temperature-log-status" aria-live="polite">Download Temperature CSV from history after completion or abort.</small>
+          <small id="temperature-log-status" aria-live="polite">Session CSV, temperature CSV and full JSON download automatically when the session ends or is aborted.</small>
         </div>
+      </section>
+
+      <!-- Researcher prompt: sham-awareness question, shown when a block's stimulation ends -->
+      <section class="panel-section" id="notice-panel" style="display: none; border: 2px solid var(--color-warning); background: rgba(245, 158, 11, 0.08);">
+        <h3><span class="section-num">!</span> Ask the participant now</h3>
+        <p style="margin: 0 0 0.5rem 0; font-size: 0.9rem;">
+          <strong id="notice-run-label">Block</strong> — stimulation has just ended.<br>
+          Ask: <em>“Did you notice the stimulation during this block?”</em>
+        </p>
+        <div class="grid-2" style="gap: 0.4rem;">
+          <button class="btn btn-secondary" onclick="recordNoticeAnswer('yes')">Yes</button>
+          <button class="btn btn-secondary" onclick="recordNoticeAnswer('no')">No</button>
+        </div>
+        <button class="btn btn-secondary" style="margin-top: 0.4rem; width: 100%;" onclick="recordNoticeAnswer('dont_know')">Don’t know</button>
       </section>
 
       <!-- Real-Time Metrics -->
@@ -162,7 +176,7 @@
         <div class="task-info">
           <div class="info-item">
             <span class="info-key">Session Duration:</span>
-            <span class="info-val" id="session-duration-val">21.5 min (10 EMG + 7 reaction-time, each split by a 1.5 min cooling break, then a 1.5 min post gap)</span>
+            <span class="info-val" id="session-duration-val">13.5 min per block (5 EMG + 5 reaction-time, each split by a 1 min cooling break, then a 1.5 min post gap)</span>
           </div>
           <div class="info-item">
             <span class="info-key">Stimulus Delay:</span>
@@ -204,6 +218,6 @@
   <script src="serial_lock.js?v=1"></script>
   <script src="lsl_markers.js?v=1"></script>
   <script src="arduino_link.js?v=8"></script>
-  <script src="app.js?v=21"></script>
+  <script src="app.js?v=22"></script>
 </body>
 </html>

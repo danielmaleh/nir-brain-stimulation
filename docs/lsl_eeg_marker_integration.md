@@ -104,7 +104,7 @@ So we insert a tiny **local bridge**: a small Python program (using the
 The condition suffix (`Heating`/`10Hz`/`40Hz`/`EMG`) is folded into the code as
 an offset, so each condition gets its own number:
 
-Each **session** is one condition, 17 min = a 10-min EMG phase then a 7-min
+Each **session** is one condition, 10 min of task = a 5-min EMG phase then a 5-min
 reaction-time phase, with stimulation on throughout.
 
 | Marker string (browser → bridge) | Code (bridge → NIC2) | When it fires | Source |
@@ -115,12 +115,15 @@ reaction-time phase, with stimulation on throughout.
 | `OMISSION` | `4` | no press within the 2 s window | task page |
 | `SESSION_START;cond=…` | `10`/`11`/`12` | session begins, stimulation on (Heating/10Hz/40Hz) | task page |
 | `SESSION_END;cond=…` | `15`/`16`/`17` | session ends, stimulation off (Heating/10Hz/40Hz) | task page |
-| `EMG_START` / `EMG_END` | `20` / `21` | 10-min EMG baseline phase start/end | task page |
-| `RT_START` / `RT_END` | `22` / `23` | 7-min reaction-time phase start/end | task page |
+| `EMG_START` / `EMG_END` | `20` / `21` | 5-min EMG baseline phase start/end (split by a 1-min cooling break) | task page |
+| `RT_START` / `RT_END` | `22` / `23` | 5-min reaction-time phase start/end (split by a 1-min cooling break) | task page |
 | `SESSION_PAUSE` / `SESSION_RESUME` | `40` / `41` | session frozen by a thermal shutdown (>40 °C) / resumed once cooled to ≤37.5 °C | task page |
 | `COOL_START` / `COOL_END` | `42` / `43` | scheduled mid-phase cooling break: stimulation off at each phase midpoint for 1.5 min / back on for the second half (planned pacing, not a safety event) | task page |
 | `POST_START` / `POST_END` | `44` / `45` | stimulation-off post gap ending every condition: 1.5 min after `RT_END`, before `SESSION_END` | task page |
 | `PRE_START` / `PRE_END` | `46` / `47` | stimulation-off pre gap, once per participant: 1.5 min before the first `SESSION_START` | task page |
+| `BLOCKED_START` / `BLOCKED_END` | `48` / `49` | blocked-light calibration (card covering the light), once per participant, before the pre gap | task page |
+| `BLOCKED_SEG;cond=…` / `BLOCKED_OFF` | `50`/`51`/`52` / `53` | its 30-s segments: Heating / 10 Hz / 40 Hz, then off | task page |
+| `CARD_REMOVE` | `54` | 10-s window to remove the card | task page |
 | `NIR_ON;cond=…` | `31`/`32` | NIR light physically ON (10Hz/40Hz) | device telemetry |
 | `STIM_OFF` | `29` | device stimulation block ends/aborts | device telemetry |
 | `HEAT_ON` / `HEAT_OFF` | `34` / `35` | heater element switches (heating condition) | device telemetry |
