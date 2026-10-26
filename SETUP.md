@@ -101,8 +101,10 @@ starts recording, or NIC2 won't find it.
    participant and session IDs, and press **Start Session**. The first 2 min are
    the blocked-light calibration (30 s each of 10 Hz, 40 Hz, heating, off, with
    the card on); the screen then says **Remove the Card** and gives you 10 s.
-   After that the session runs itself: pre gap, three 13.5-min conditions with
-   rests. Keep your eyes on the sidebar.
+   After that the session runs itself: pre gap, then three 13.5-min blocks,
+   each ending in its stimulation-off gap (the "Off gap after each block"
+   field, default 90 s — the same gap separates the blocks). Keep your eyes
+   on the sidebar.
 
 8. **Sham question.** Each time a block's stimulation ends (start of its
    1.5-min post gap) a yellow panel appears in the sidebar: ask the participant

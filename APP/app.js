@@ -86,8 +86,15 @@ function phaseSplit() { return true; }
 // the last condition, which previously ended the instant the RT phase did. It is
 // marked POST_START/POST_END (44/45) and applies to test sessions too, so a dry
 // run ends the way a real one does. RT_END fires before it, SESSION_END after.
-const POST_GAP_MS = 90000;         // 1.5 minutes, stimulation off
+const POST_GAP_MS = 90000;         // default 1.5 minutes (same as the pre gap); the config
+                                   // field "Off gap after each block" overrides it
 let inPostGap = false;
+/** Length of the stimulation-off gap that ends every block: the config field, else the default. */
+function postGapMs() {
+  const el = document.getElementById('pause-duration');
+  const sec = el ? parseInt(el.value) : NaN;
+  return (isNaN(sec) || sec < 5) ? POST_GAP_MS : sec * 1000;
+}
 
 // PRE GAP: one stimulation-off window before the FIRST condition, so every
 // condition has an off period on both sides -- conditions 2 and 3 already get
@@ -127,9 +134,9 @@ let heaterTargetSource = 'none';
 function sessionShape() {
   const m = (ms) => (ms / 60000).toFixed(1).replace(/\.0$/, '');
   const base = `${m(emgPhaseMs())} EMG + ${m(rtPhaseMs())} RT`;
-  const post = ` + ${m(POST_GAP_MS)} min post gap`;
-  if (!phaseSplit()) return `${m(emgPhaseMs() + rtPhaseMs() + POST_GAP_MS)} min: ${base}${post}`;
-  const total = emgPhaseMs() + rtPhaseMs() + 2 * coolingBreakMs() + POST_GAP_MS;
+  const post = ` + ${m(postGapMs())} min off gap`;
+  if (!phaseSplit()) return `${m(emgPhaseMs() + rtPhaseMs() + postGapMs())} min: ${base}${post}`;
+  const total = emgPhaseMs() + rtPhaseMs() + 2 * coolingBreakMs() + postGapMs();
   return `${m(total)} min: ${base}, each phase split by a ${m(coolingBreakMs())} min cooling break${post}`;
 }
 const RESUME_TEMP_C = 37.5;        // after a thermal shutdown, auto-resume once the RAW reading cools to this (old firmware)
@@ -221,12 +228,13 @@ window.addEventListener('load', () => {
     const updateDurationLabel = () => {
       const emgMs = elTestModeCb.checked ? TEST_EMG_PHASE_MS : EMG_PHASE_MS;
       const rtMs = elTestModeCb.checked ? TEST_RT_PHASE_MS : RT_PHASE_MS;
-      const post = `, then a ${POST_GAP_MS / 60000} min post gap`;
+      const post = `, then a ${postGapMs() / 60000} min off gap`;
       const coolMs = elTestModeCb.checked ? TEST_COOLING_BREAK_MS : COOLING_BREAK_MS;
-      const total = (emgMs + rtMs + 2 * coolMs + POST_GAP_MS) / 60000;
+      const total = (emgMs + rtMs + 2 * coolMs + postGapMs()) / 60000;
       elDurationVal.textContent = `${total} min (${emgMs / 60000} EMG + ${rtMs / 60000} reaction-time, each split by a ${coolMs / 60000} min cooling break${post})${elTestModeCb.checked ? ' — TEST' : ''}`;
     };
     elTestModeCb.addEventListener('change', updateDurationLabel);
+    if (elPauseDuration) elPauseDuration.addEventListener('input', updateDurationLabel);
     updateDurationLabel();
   }
   // Connect to the LSL marker bridge (best-effort; the task runs fine without it).
@@ -1193,11 +1201,14 @@ function postGap(onDone) {
   if (window.ArduinoLink) ArduinoLink.stop();
   logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'POST_START', null);
   sendMarker('POST_START');
-  logToConsole('SYSTEM', `Post gap (${POST_GAP_MS / 60000} min) — stimulation off, recording continues.`);
+  const gapMs = postGapMs();
+  const last = currentRunIndex >= sessionConditions.length - 1;
+  logToConsole('SYSTEM', `Off gap (${gapMs / 60000} min) — stimulation off, recording continues${last ? '' : `; next block: ${sessionConditions[currentRunIndex + 1]}`}.`);
   promptNoticeQuestion(currentRunIndex, sessionConditions[currentRunIndex]);
-  showParticipantMessage('Almost Done',
-    'Stimulation has finished for this block.<br>Please keep resting quietly with your eyes closed.');
-  runPhaseTimer(POST_GAP_MS, () => {
+  showParticipantMessage(last ? 'Almost Done' : 'Block Complete',
+    'Stimulation has finished for this block.<br>Please keep resting quietly with your eyes closed' +
+    (last ? '.' : ' — the next block starts automatically.'));
+  runPhaseTimer(gapMs, () => {
     inPostGap = false;
     recordTemperature('POST_END');
     logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'POST_END', null);
@@ -1407,74 +1418,14 @@ function endRun() {
   saveSessionToStorage();
 
   // 3 sessions total: pause after the first two, finish after the third.
-  if (currentRunIndex < 2) {
-    startPausePhase();
+  if (currentRunIndex < sessionConditions.length - 1) {
+    // The stimulation-off gap already ran as this block's post gap; start the next block.
+    currentRunIndex++;
+    updateStats();
+    startRun();
   } else {
     completeSession();
   }
-}
-
-/**
- * @brief Manages intermediate pause countdown before launching the next run.
- */
-function startPausePhase() {
-  inPausePhase = true;
-  recordTemperature('REST_START');
-  clearTimeout(stimulusTimer);
-  clearTimeout(responseTimer);
-  
-  const pauseSecInput = parseInt(elPauseDuration.value);
-  const pauseDurationSec = isNaN(pauseSecInput) || pauseSecInput < 5 ? 180 : pauseSecInput;
-  let remainingPauseSec = pauseDurationSec;
-
-  const nextCondition = sessionConditions[currentRunIndex + 1];
-
-  logToConsole('SYSTEM', `Entering intermediate pause: ${pauseDurationSec} seconds. Next condition: ${nextCondition}`);
-  updateStats();
-
-  // Update participant overlay screen dynamically to show pause
-  elInfoOverlay.style.display = 'block';
-  setTimeout(() => {
-    elInfoOverlay.style.opacity = '1';
-    elInfoOverlay.style.transform = 'translateY(0)';
-  }, 50);
-
-  // Update the labels in the instruction-box overlay
-  document.getElementById('overlay-title').textContent = `Pause Phase (Rest)`;
-  document.getElementById('overlay-instruction').innerHTML = `
-    Session ${currentRunIndex + 1} of 3 completed.<br>
-    Please keep eyes closed and rest.<br>
-    <strong style="color: var(--accent-secondary); font-size: 1.15rem;">Next condition starts in ${remainingPauseSec}s</strong>
-  `;
-  elStatsTimeLeft.textContent = `Rest: ${remainingPauseSec}s`;
-
-  pauseTimer = setInterval(() => {
-    remainingPauseSec--;
-    elStatsTimeLeft.textContent = `Rest: ${remainingPauseSec}s`;
-    
-    document.getElementById('overlay-instruction').innerHTML = `
-      Session ${currentRunIndex + 1} of 3 completed.<br>
-      Please keep eyes closed and rest.<br>
-      <strong style="color: var(--accent-secondary); font-size: 1.15rem;">Next condition starts in ${remainingPauseSec}s</strong>
-    `;
-
-    if (remainingPauseSec <= 0) {
-      clearInterval(pauseTimer);
-      inPausePhase = false;
-      
-      // Hide overlay
-      elInfoOverlay.style.opacity = '0';
-      elInfoOverlay.style.transform = 'translateY(-20px)';
-      setTimeout(() => {
-        elInfoOverlay.style.display = 'none';
-      }, 400);
-
-      // Increment index and start next run
-      currentRunIndex++;
-      updateStats();
-      startRun();
-    }
-  }, 1000);
 }
 
 /**

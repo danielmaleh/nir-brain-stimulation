@@ -42,8 +42,8 @@
             <input type="text" id="session-run" placeholder="e.g., S01" value="S01">
           </div>
           <div class="input-group">
-            <label for="pause-duration">Pause (sec)</label>
-            <input type="text" id="pause-duration" placeholder="180" value="180">
+            <label for="pause-duration">Off gap after each block (sec)</label>
+            <input type="text" id="pause-duration" placeholder="90" value="90">
           </div>
         </div>
         <div class="input-group" style="margin-top: 0.5rem;">
@@ -176,7 +176,7 @@
         <div class="task-info">
           <div class="info-item">
             <span class="info-key">Session Duration:</span>
-            <span class="info-val" id="session-duration-val">13.5 min per block (5 EMG + 5 reaction-time, each split by a 1 min cooling break, then a 1.5 min post gap)</span>
+            <span class="info-val" id="session-duration-val">13.5 min per block (5 EMG + 5 reaction-time, each split by a 1 min cooling break, then a 1.5 min off gap)</span>
           </div>
           <div class="info-item">
             <span class="info-key">Stimulus Delay:</span>
@@ -218,6 +218,6 @@
   <script src="serial_lock.js?v=1"></script>
   <script src="lsl_markers.js?v=1"></script>
   <script src="arduino_link.js?v=8"></script>
-  <script src="app.js?v=23"></script>
+  <script src="app.js?v=24"></script>
 </body>
 </html>

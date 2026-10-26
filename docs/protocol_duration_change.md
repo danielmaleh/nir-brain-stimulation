@@ -9,7 +9,7 @@ what the software enforces (`APP/app.js` constants) unless marked *nominal*.
 |---|---|---|---|
 | EMG baseline phase | 10 min, unbroken | 5 + **1.5 cool** + 5 = 11.5 min | **2.5 + 1 cool + 2.5 = 6 min** |
 | Reaction-time phase | 7 min, unbroken | 3.5 + 1.5 cool + 3.5 = 8.5 min | **2.5 + 1 cool + 2.5 = 6 min** |
-| Post gap (stimulation off) | — | 1.5 min | **1.5 min** |
+| Off gap ending the block (stimulation off) | — (3-min rest between conditions only) | 1.5 min + 3-min rest | **1.5 min (default; one window)** |
 | **Per condition** | **17 min** | **21.5 min** | **13.5 min** |
 | Light/heater ON time per condition | 17 min (1020 s) | 17 min (1020 s) | **10 min (600 s)** |
 | Light-on blocks per condition | 1 continuous (17 min) | 3 (5, 8.5, 3.5 min — no break at the EMG→RT boundary) | **3 (2.5, 5, 2.5 min — no break at the EMG→RT boundary)** |
@@ -26,14 +26,13 @@ allowed on a bench firmware build.
 | Card-removal window | — | — | **10 s** |
 | Pre gap (stimulation off) | — | 1.5 min (from 4 Oct) | **1.5 min** |
 | Condition 1 | 17 | 21.5 | **13.5** |
-| Rest | 3 | 3 | **3** |
+| Rest between conditions | 3 | 3 (in addition to the post gap) | **none — the block's own off gap is the separation** |
 | Condition 2 | 17 | 21.5 | **13.5** |
-| Rest | 3 | 3 | **3** |
 | Condition 3 | 17 | 21.5 | **13.5** |
-| **Total in-protocol** | **57 min** | **~72 min** | **~50 min** |
+| **Total in-protocol** | **57 min** | **~72 min** | **~44 min** |
 | Sham-awareness question | — | — | asked by the experimenter during each post gap; adds no time |
 
-Rests are configurable in the app (default 180 s, minimum 5 s).
+The off gap is configurable in the app ("Off gap after each block", default 90 s, minimum 5 s); from 26 Oct 2026 it is the only gap between conditions — the earlier design stacked a 3-min rest on top of it.
 
 ## 3. Light dose
 
