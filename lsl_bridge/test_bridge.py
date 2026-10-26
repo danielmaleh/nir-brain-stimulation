@@ -41,18 +41,25 @@ async def main():
         pass
     time.sleep(0.3)
 
-    test_marker = f"SELFTEST_{int(time.time())}"
+    # The bridge writes NUMERIC codes (int32, or numeric strings), never the
+    # marker text, so send a codebook marker and expect its code back. An
+    # unknown marker would come back as 255 — also a valid round trip, but
+    # TONE=1 additionally proves the codebook is loaded.
+    test_marker, expected_code = "TONE", 1
     async with websockets.connect(WS_URL) as ws:
         await ws.send(json.dumps({"marker": test_marker}))
-        print(f"sent over WebSocket: {test_marker}")
+        ack = json.loads(await asyncio.wait_for(ws.recv(), 3))
+        print(f"sent over WebSocket: {test_marker}; bridge ack: {ack}")
+        if ack.get("code") != expected_code:
+            sys.exit(f"FAIL: bridge encoded {test_marker} as {ack.get('code')}, expected {expected_code}")
 
     deadline = time.time() + 3
     while time.time() < deadline:
         sample, ts = inlet.pull_sample(timeout=0.5)
-        if sample and sample[0] == test_marker:
-            print(f"PASS: received '{sample[0]}' on LSL at t={ts:.3f}")
+        if sample and str(sample[0]) == str(expected_code):
+            print(f"PASS: received code {sample[0]} ({test_marker}) on LSL at t={ts:.3f}")
             return
-    sys.exit("FAIL: marker was not received on the LSL inlet")
+    sys.exit("FAIL: marker code was not received on the LSL inlet")
 
 
 if __name__ == "__main__":

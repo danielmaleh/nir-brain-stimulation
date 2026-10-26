@@ -20,7 +20,7 @@ is reused every session. Re-run only if the optics, contact, or geometry change.
 Requires the MAIN firmware flashed (uses its M/G/X commands and TEMP_LOG stream).
 Usage:
     python calibration/calibrate_thermal.py [--port /dev/cu.usbmodemXXXX]
-                                            [--duration 40] [--plateau-window 10]
+                                            [--duration 150] [--plateau-window 10]
                                             [--cooldown 15]
 """
 import argparse
@@ -177,7 +177,7 @@ def cool_until_stable(ser, tol=0.25, window=20.0, max_wait=300):
 def main():
     ap = argparse.ArgumentParser(description="Thermal calibration for the heating-control condition.")
     ap.add_argument("--port", default=None, help="serial port (auto-detected if omitted)")
-    ap.add_argument("--duration", type=float, default=40.0, help="stimulation duration per condition (s)")
+    ap.add_argument("--duration", type=float, default=150.0, help="stimulation duration per condition (s)")
     ap.add_argument("--plateau-window", type=float, default=10.0, help="trailing window used for the plateau (s)")
     ap.add_argument("--cooldown", type=float, default=15.0, help="post-stimulation recording (s)")
     args = ap.parse_args()

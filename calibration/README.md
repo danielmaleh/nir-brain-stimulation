@@ -8,7 +8,7 @@ stores it; the experiment then drives the heater to the matched temperature.
 ## What it does
 
 `calibrate_thermal.py` runs the 10 Hz and 40 Hz NIR conditions on the device for
-the experiment's run duration (40 s), records the DS18B20 contact temperature,
+one stimulation block of the protocol (150 s; `--duration 150`), records the DS18B20 contact temperature,
 and computes the **plateau temperature** each reached (mean of the last 10 s).
 The heating-control set point is stored as the **average** of the two plateaus
 (they should be nearly equal, since both run at 50 % duty cycle / equal average
@@ -33,7 +33,7 @@ Output (two identical copies, both committed so the calibration persists):
 python calibration/calibrate_thermal.py           # auto-detects the Arduino port
 # options:
 #   --port /dev/cu.usbmodemXXXX   (or COMx on Windows)
-#   --duration 40                 stimulation seconds per condition
+#   --duration 150                stimulation seconds per condition (one 2.5-min protocol block)
 #   --plateau-window 10           trailing window used for the plateau
 #   --cooldown 15                 post-stimulation recording
 ```
@@ -47,9 +47,13 @@ git add calibration/thermal_profile.json APP/thermal_profile.json && git commit 
 
 ## How it's used in a session
 
-When the task page runs the **Heating Control** condition, it reads
-`APP/thermal_profile.json` and sends the matched set point to the firmware
-(`H<temp>`), so the heater thermostat regulates to the NIR-matched temperature
-instead of the default 37.5 °C. If the profile is uncalibrated or missing, the
-firmware falls back to 37.5 °C (and the task page logs a warning). The 40 °C
-latching safety cutoff always applies, and the set point is clamped below it.
+During a **Heating Control** run the task page replays, on the device sensor,
+the device-temperature trajectory recorded during the same participant's NIR
+runs earlier in the session (an `H<temp>` target every 5 s; the firmware tracks
+it with a feedforward + PI controller under a 20 % duty cap). This profile is
+only the **fallback** when Heating is drawn as the first condition and nothing
+has been recorded yet: then the page sends baseline + `heating_rise_c`. The
+committed profile is from a 40-s July run (`heating_rise_c` 0.74 °C) and
+under-represents a 2.5-min block — re-run the calibration with `--duration 150`
+and commit both copies. The thermal cutoff always applies (estimated skin
+surface 37 °C, raw 40 °C backstop), and the set point is clamped below it.

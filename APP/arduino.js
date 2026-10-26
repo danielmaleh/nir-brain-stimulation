@@ -515,7 +515,7 @@ function handleTelemetryEvent(eventType, val1, val2, val3) {
         updateArduinoConditionDisplay(condIdx);
       }
       const codes = ['Heating', '10Hz', '40Hz'];
-      sendMarker('STIM_COND_SWITCH;cond=' + (codes[condIdx] || 'unknown'));
+      if (condIdx >= 1) sendMarker('NIR_ON;cond=' + (codes[condIdx] || 'unknown'));   // live switch: light physically on in the new condition
       logToConsole(`Condition switched live during stimulation → ${CONDITION_NAMES[condIdx] || 'UNKNOWN'}.`, 'warning');
       break;
     }
@@ -537,7 +537,7 @@ function handleTelemetryEvent(eventType, val1, val2, val3) {
         updateArduinoConditionDisplay(condIdx);
       }
       const codes = ['Heating', '10Hz', '40Hz'];
-      sendMarker('STIM_ON;cond=' + (codes[condIdx] || 'unknown'));
+      if (condIdx >= 1) sendMarker('NIR_ON;cond=' + (codes[condIdx] || 'unknown'));   // NIR_ON 31/32; heating is marked by HEAT_ON
       logToConsole('Stimulation started.', 'success');
       break;
     }

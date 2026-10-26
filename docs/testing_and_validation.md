@@ -39,7 +39,7 @@ You flash **one at a time**. Uploading a new sketch replaces the previous one.
 
 If every one of those behaves as expected, your wiring is good.
 
-> The TB6612 driver's `STBY` (enable) pin is tied to 5V, so it's always on — there's nothing to toggle. If the NIR/heater channels don't switch at all, check that `STBY` really is connected to 5V and that you have a common ground. (Only if you chose the optional Arduino-controlled `STBY` does the **Toggle STBY (Y)** button do anything.)
+> *(Applies to the earlier TB6612 build only — the current build uses low-side MOSFET modules, see `APP/wiring_check.html`.)* The TB6612 driver's `STBY` (enable) pin is tied to 5V, so it's always on — there's nothing to toggle. If the NIR/heater channels don't switch at all, check that `STBY` really is connected to 5V and that you have a common ground. (Only if you chose the optional Arduino-controlled `STBY` does the **Toggle STBY (Y)** button do anything.)
 
 ---
 
@@ -66,12 +66,12 @@ If the `S` test latches everything off, the safety system works.
 2. Open `APP/arduino.html` in Chrome → **Connect**.
 3. Because there are no buttons, you drive it from the page:
    - **Cycle Mode** — pick Heating / 10 Hz / 40 Hz.
-   - **Start** — begins the 1-minute stimulation, then a 3-minute rest.
+   - **Start** — starts stimulation in the selected mode; the firmware keeps it on for at most 4 min (in a session the task page stops it at each block end, ≤ 2.5 min).
    - **Stop** — aborts.
    - **Reset Safety** — clears a temperature trip (only if it's cooled down).
 4. The page shows live temperature, a safety status box, and pulse activity. Watch that the pulse log ticks steadily and that no `PULSE_DROPPED` messages appear.
 
-> `APP/index.html` (the reaction-time task) is a **separate** program for the participant's behavioral test. It does not talk to the Arduino — it runs on its own in the browser.
+> `APP/index.html` (the reaction-time task) is the page used in sessions. It connects to the device itself (**Connect NIR Device**) and starts/stops stimulation for each phase automatically; `arduino.html` is a bench dashboard and must not hold the port while a session runs.
 
 ---
 

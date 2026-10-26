@@ -12,7 +12,7 @@ what the software enforces (`APP/app.js` constants) unless marked *nominal*.
 | Post gap (stimulation off) | — | 1.5 min | **1.5 min** |
 | **Per condition** | **17 min** | **21.5 min** | **13.5 min** |
 | Light/heater ON time per condition | 17 min (1020 s) | 17 min (1020 s) | **10 min (600 s)** |
-| Stimulation blocks per condition | 1 continuous | 4 (5, 5, 3.5, 3.5 min) | **4 × 2.5 min** |
+| Light-on blocks per condition | 1 continuous (17 min) | 3 (5, 8.5, 3.5 min — no break at the EMG→RT boundary) | **3 (2.5, 5, 2.5 min — no break at the EMG→RT boundary)** |
 
 The current timing is the former *test-session* timing promoted to the protocol;
 test sessions now differ from real ones only in the `TEST` stamp and in being
@@ -52,13 +52,15 @@ from the hardware spec (average optical power ~84 mW over ~4 cm² ≈ 21 mW/cm²
 
 Two things to state explicitly in any write-up:
 
-- The hardware spec's "target fluence ~1.25 J/cm²" and "~5 J per condition" date
+- The hardware spec's original "target fluence ~1.25 J/cm²" and "~5 J per condition" dated
   from a **1-minute** exposure design and were never updated; at 600 s the
   nominal fluence is ~10× that figure and above the 0.3–3 J/cm² window cited
   for tPBM. The measured irradiance, not the nominal one, has to settle this
   before participants.
 - Cooling breaks and gaps change **pacing**, not dose: the 600 s on-time is
-  delivered in four blocks with the light fully off in between.
+  delivered in three blocks (2.5, 5, 2.5 min) with the light fully off in
+  between. Note the middle block spans the EMG→RT boundary unbroken (5 min);
+  adding a break there would make it four 2.5-min blocks and add 1 min.
 
 ## 4. Why the timing changed
 

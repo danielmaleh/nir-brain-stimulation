@@ -23,7 +23,7 @@ Three components, each in its own directory, joined over USB serial and a localh
    └──────────────────┘                  └─────────────────┘
 ```
 
-- **`firmware/`** — generates the pulse train on a Timer1 compare interrupt (jitter-free 10.00 / 40.00 Hz), runs a PID thermostat for the heating control, polls skin temperature every 200 ms, and latches a hard cut-off at 40 °C.
+- **`firmware/`** — generates the pulse train on a Timer1 compare interrupt (jitter-free 10.00 / 40.00 Hz), runs a feedforward + PI heater controller for the heating control, polls skin temperature every 200 ms, and latches a hard cut-off when the estimated skin-surface temperature reaches 37 °C (raw sensor ≥ 40 °C as backstop).
 - **`APP/`** — runs the participant task in Chrome, drives the device over Web Serial, captures keypresses with `performance.now()`, and logs every trial to `localStorage` with CSV export.
 - **`lsl_bridge/`** — translates browser events into numeric LSL markers so NIC2 writes them directly into the EEG file on a shared clock.
 
@@ -60,7 +60,7 @@ A 600 Hz sine tone (10 ms attack, 150 ms decay, generated in the Web Audio API) 
 | Pulse frequencies | 10.00 Hz and 40.00 Hz (Timer1 CTC, prescaler 64) |
 | Duty cycle | 50 % |
 | Illumination area | ~4 cm² |
-| Exposure per condition | 10 min (600 s) light-on, delivered as four 2.5-min blocks separated by 1-min cooling breaks (pacing keeps skin temperature down) |
+| Exposure per condition | 10 min (600 s) light-on, delivered as three blocks (2.5, 5 and 2.5 min) separated by two 1-min cooling breaks — the EMG→RT boundary has no break (pacing keeps skin temperature down) |
 | Skin-contact temperature | Hard latching cut-off at an **estimated skin-surface temperature of 37.0 °C** (40 °C limit minus a 3 °C margin covering the estimate's worst-case error), with the raw sensor reading ≥ 40.0 °C as a backstop. The DS18B20 sits behind the contact surface and reads several degrees low and ~90 s late during a ramp, so the firmware estimates the surface from a per-temperature-range gap table plus the reading's slope — see `analysis/thermal/fit_surface_model.py`, which fits the table from a bench run with a reference probe at the contact point and must be re-run whenever the sensor, LED array or heater is remounted. |
 | Heating-control set point | Replays, on the device sensor, the device-temperature trajectory recorded during the same session's NIR runs (mean of the preceding NIR runs at the same offset into the run, refreshed every 5 s); falls back to the calibrated profile (baseline + fixed rise) if Heating is the first condition. Tracked by a feedforward + PI controller (`HEATER_PID` telemetry carries the feedforward duty), heater duty capped at 20 % — at that cap the heater's plateau is ~+10 °C on the device sensor, so a residual shortfall against a faster NIR ramp is a power limit, not a control one |
 
@@ -152,12 +152,14 @@ Order matters. The marker outlet must exist before NIC2 starts looking for it:
 1. Start the bridge: `python lsl_bridge/lsl_bridge.py` — wait for `LSL Markers outlet 'tPBM-Markers' is live`.
 2. In NIC2, enable LSL and point the marker inlet at **`tPBM-Markers`** (case-sensitive, exact match).
 3. Start the NIC2 recording.
-4. Open `APP/index.html` in Chrome, connect to the device, enter the participant ID, and start. The condition order is randomised automatically.
-5. Stop the NIC2 recording at the end, then export the behavioural CSV from the app.
+4. Open `APP/index.html` in Chrome and click **Connect NIR Device** (the task page drives the device itself; do not connect the hardware dashboard during a session). Confirm the console shows `Firmware build: PROTOCOL` — a real session is refused on a BENCH build or without a connected device.
+5. **Put the blocking card over the light**, enter the participant ID, and start. The first 2 min are the blocked-light calibration; remove the card when the screen says so (10-s window). The condition order is randomised automatically.
+6. When each block's stimulation ends, the sidebar prompts you to ask *"Did you notice the stimulation?"* — click Yes / No / Don't know (the last block's prompt stays open after the session until answered).
+7. Stop the NIC2 recording at the end. The app downloads the session CSV, the temperature CSV and a full JSON automatically (Chrome asks once to allow multiple downloads).
 
 Full per-session detail, including Windows-specific pitfalls (COM-port exclusivity, Chrome's Memory Saver discarding the tab mid-session), is in **`SETUP.md`**. Run one full dry run before your first participant and confirm markers land in the recording at sensible times.
 
-**If the device trips at 40 °C mid-session**, the app pauses automatically, emits `SESSION_PAUSE` (code 40), waits for the temperature to fall to 37.5 °C, then resumes the *same phase* and emits `SESSION_RESUME` (41). The session is not lost, but the pause is in the marker stream and should be accounted for in analysis.
+**If the device trips mid-session** (estimated skin surface ≥ 37 °C, or raw sensor ≥ 40 °C), the app pauses automatically, emits `SESSION_PAUSE` (code 40), waits until the estimated surface is ≤ 34 °C and the sensor ≤ 37.5 °C, then resumes the *same phase* and emits `SESSION_RESUME` (41). The session is not lost, but the pause is in the marker stream and should be accounted for in analysis.
 
 ---
 
@@ -192,8 +194,8 @@ Markers are integers because NIC2 does not record string markers. The codebook i
 | `32` | NIR_ON | 40 Hz NIR | `NIR_ON;cond=40Hz` | device | NIR light physically ON — 850 nm @ 40 Hz, 50 % duty |
 | `34` | HEAT_ON | — | `HEAT_ON` | device | Heater element energised (heating-control condition, PID-regulated) |
 | `35` | HEAT_OFF | — | `HEAT_OFF` | device | Heater element off |
-| `40` | SESSION_PAUSE | — | `SESSION_PAUSE` | task page | Session frozen by a thermal shutdown (> 40 °C); pairs with `99` |
-| `41` | SESSION_RESUME | — | `SESSION_RESUME` | task page | Session resumed after the temperature recovered to ≤ 37.5 °C |
+| `40` | SESSION_PAUSE | — | `SESSION_PAUSE` | task page | Session frozen by a thermal shutdown (estimated skin surface ≥ 37 °C, or raw ≥ 40 °C); pairs with `99` |
+| `41` | SESSION_RESUME | — | `SESSION_RESUME` | task page | Session resumed once the estimated surface was ≤ 34 °C and the sensor ≤ 37.5 °C |
 | `42` | COOL_START | — | `COOL_START` | task page | Scheduled mid-phase cooling break begins (stimulation off). Planned pacing — not a safety event |
 | `43` | COOL_END | — | `COOL_END` | task page | Scheduled cooling break over; stimulation back on, phase second half resumes |
 | `44` | POST_START | — | `POST_START` | task page | Stimulation-off post gap begins — the last step of every condition (after `RT_END`, before `SESSION_END`) |
@@ -207,7 +209,7 @@ Markers are integers because NIC2 does not record string markers. The codebook i
 | `52` | BLOCKED_SEG | 40 Hz NIR | `BLOCKED_SEG;cond=40Hz` | task page | 30-s blocked 40 Hz segment (device `NIR_ON` 32 follows) |
 | `53` | BLOCKED_OFF | — | `BLOCKED_OFF` | task page | 30-s blocked stimulation-off segment |
 | `54` | CARD_REMOVE | — | `CARD_REMOVE` | task page | 10-s window to remove the card; `PRE_START` follows |
-| `99` | SAFETY_TRIP | — | `SAFETY_TRIP` | device | 40 °C skin-temperature cut-off latched; all stimulation force-stopped |
+| `99` | SAFETY_TRIP | — | `SAFETY_TRIP` | device | Thermal cut-off latched (estimated surface ≥ 37 °C, raw ≥ 40 °C, sensor fault, or 1-Wire timeout); all stimulation force-stopped |
 
 Condition-bearing events are encoded as **base code + condition offset** (`Heating` = 0, `10Hz` = 1, `40Hz` = 2), which is why `30` is deliberately unused — the heating control emits `HEAT_ON` (34) instead of a `NIR_ON`. The arithmetic can still *produce* 30 (`NIR_ON` + Heating), which is a contradiction, so the bridge rejects it as invalid rather than writing it. A `cond=` that is missing or misspelt is likewise rejected, never defaulted to offset 0 — silently relabelling a 10 Hz run as the heating arm is unrecoverable after the fact. "Task page" codes originate in the browser app; "device" codes are derived from Arduino serial telemetry, so `11` (the task says stimulation started) and `31` (the device confirms the LED is pulsing) are independent confirmations.
 
