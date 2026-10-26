@@ -32,7 +32,7 @@ Layer solves.
 | **LSL (Lab Streaming Layer)** | A small, free networking system for research. Each data source publishes a **stream**; LSL keeps all streams **synchronized to ~1 ms** on one clock. The standard glue for multimodal experiments. |
 | **Outlet** | An LSL "sender". NIC2 publishes EEG as an outlet; our bridge publishes a *Markers* outlet. |
 | **Inlet** | An LSL "receiver". NIC2 acts as an inlet for our markers; a recorder acts as an inlet for everything. |
-| **Marker / trigger / annotation** | A short event label (a string like `STIM` or a code) placed at a precise time in the recording. Same idea, different names. |
+| **Marker / trigger / annotation** | A short event label (a string like `TONE` or a code) placed at a precise time in the recording. Same idea, different names. |
 
 ### What NIC2 gives you over LSL
 When LSL is enabled in NIC2, it exposes up to four outlets, named after a base
@@ -101,11 +101,11 @@ So we insert a tiny **local bridge**: a small Python program (using the
 > table below. (If your NIC2 is configured for "numeric-string" markers rather
 > than int32, set `MARKER_FORMAT = "string"` at the top of `lsl_bridge.py`.)
 
-The condition suffix (`Heating`/`10Hz`/`40Hz`/`EMG`) is folded into the code as
+The condition suffix (`Heating`/`10Hz`/`40Hz`) is folded into the code as
 an offset, so each condition gets its own number:
 
 Each **session** is one condition, 10 min of task = a 5-min EMG phase then a 5-min
-reaction-time phase, with stimulation on throughout.
+reaction-time phase; each phase is split at its midpoint by a 1-min stimulation-off cooling break, and a 1.5-min stimulation-off post gap ends the condition.
 
 | Marker string (browser → bridge) | Code (bridge → NIC2) | When it fires | Source |
 |---|---|---|---|
@@ -117,8 +117,8 @@ reaction-time phase, with stimulation on throughout.
 | `SESSION_END;cond=…` | `15`/`16`/`17` | session ends, stimulation off (Heating/10Hz/40Hz) | task page |
 | `EMG_START` / `EMG_END` | `20` / `21` | 5-min EMG baseline phase start/end (split by a 1-min cooling break) | task page |
 | `RT_START` / `RT_END` | `22` / `23` | 5-min reaction-time phase start/end (split by a 1-min cooling break) | task page |
-| `SESSION_PAUSE` / `SESSION_RESUME` | `40` / `41` | session frozen by a thermal shutdown (>40 °C) / resumed once cooled to ≤37.5 °C | task page |
-| `COOL_START` / `COOL_END` | `42` / `43` | scheduled mid-phase cooling break: stimulation off at each phase midpoint for 1.5 min / back on for the second half (planned pacing, not a safety event) | task page |
+| `SESSION_PAUSE` / `SESSION_RESUME` | `40` / `41` | session frozen by a thermal shutdown (estimated skin surface ≥37 °C, raw ≥40 °C backstop) / resumed once the estimate ≤34 °C and sensor ≤37.5 °C | task page |
+| `COOL_START` / `COOL_END` | `42` / `43` | scheduled mid-phase cooling break: stimulation off at each phase midpoint for 1 min / back on for the second half (planned pacing, not a safety event) | task page |
 | `POST_START` / `POST_END` | `44` / `45` | stimulation-off post gap ending every condition: 1.5 min after `RT_END`, before `SESSION_END` | task page |
 | `PRE_START` / `PRE_END` | `46` / `47` | stimulation-off pre gap, once per participant: 1.5 min before the first `SESSION_START` | task page |
 | `BLOCKED_START` / `BLOCKED_END` | `48` / `49` | blocked-light calibration (card covering the light), once per participant, before the pre gap | task page |
@@ -127,8 +127,8 @@ reaction-time phase, with stimulation on throughout.
 | `NIR_ON;cond=…` | `31`/`32` | NIR light physically ON (10Hz/40Hz) | device telemetry |
 | `STIM_OFF` | `29` | device stimulation block ends/aborts | device telemetry |
 | `HEAT_ON` / `HEAT_OFF` | `34` / `35` | heater element switches (heating condition) | device telemetry |
-| `SAFETY_TRIP` | `99` | 40 °C safety cutoff latched | device telemetry |
-| *(anything unrecognized)* | `0` | logged by the bridge as UNKNOWN | — |
+| `SAFETY_TRIP` | `99` | thermal cutoff latched (estimated surface ≥37 °C, raw ≥40 °C, sensor fault) | device telemetry |
+| *(anything unrecognized, or a `cond=` that cannot be parsed)* | `255` | written into the recording so the problem is visible; never 0 (0 = no marker in the `.easy` file) | bridge |
 
 The codebook lives in `lsl_bridge.py` (`SIMPLE_CODES` / `COND_CODES`). Keep the
 codes **stable** — your analysis scripts key off these exact integers. The
@@ -155,8 +155,7 @@ fires, so you can watch the mapping live.
 6. **Stop the NIC2 recording** at the end. The markers are now inside the file.
 
 **Sanity check before real participants:** run one short test session and
-confirm the markers appear in the NIC2 recording at sensible times (e.g. a
-a `TONE` roughly every ~5–7 s during the RT phase, each followed by a `RESPONSE` or `OMISSION`).
+confirm the markers appear in the NIC2 recording at sensible times (e.g. a `TONE` roughly every ~5–7 s during the RT phase, each followed by a `RESPONSE` or `OMISSION`).
 
 ---
 
@@ -201,6 +200,5 @@ a `TONE` roughly every ~5–7 s during the RT phase, each followed by a `RESPONS
 
 ---
 
-*This document describes the intended integration. The Python bridge and the
-browser-side marker hooks are the implementation step — see the project's
-`analysis/` or a dedicated `lsl_bridge/` folder once built.*
+*Implementation: `lsl_bridge/lsl_bridge.py` (bridge), `APP/lsl_markers.js`
+(browser client), `analysis/trigger_codes.csv` (codebook).*

@@ -51,12 +51,18 @@ the true stimulus-to-response latency.
 
 ## Session structure and randomisation
 
-Each session consisted of four runs presented in a per-participant randomised
-order, covering all four conditions exactly once: heating control, 10 Hz NIR,
-40 Hz NIR, and a silent wrist-electromyography (EMG) run. The three
-stimulation/task runs each lasted 40 s; the wrist-EMG run lasted 20 s and
-contained no auditory stimuli or responses. Consecutive runs were separated by a
-configurable rest interval (default 180 s). The randomised condition sequence
+Each session began with a blocked-light calibration (the light physically
+covered by a card: 30 s each of 10 Hz, 40 Hz, heating and off, as a
+per-participant noise reference for the drive electronics), a 10-s card-removal
+window and a 1.5-min stimulation-off pre gap, followed by the three conditions
+(heating control, 10 Hz NIR, 40 Hz NIR) in a per-participant randomised order.
+Each condition lasted 13.5 min: a 5-min silent EMG-baseline phase (no auditory
+stimuli or responses) and a 5-min reaction-time phase, each split at its midpoint
+by a 1-min stimulation-off cooling break, followed by a 1.5-min stimulation-off
+post gap; stimulation was on for 10 min per condition. At the end of each
+block's stimulation the experimenter asked whether the participant had noticed
+the stimulation (yes / no / don't know). Consecutive conditions were separated
+by a configurable rest interval (default 180 s). The randomised condition sequence
 was generated at session start and logged. During active runs the participant-
 facing display presented only a minimal fixation element, and participants were
 instructed to keep their eyes closed, in order to preserve blinding.
@@ -76,13 +82,16 @@ serial output. Every pulse edge was time-stamped in the interrupt and streamed
 over the serial link for logging.
 
 Skin-contact temperature was monitored continuously with a digital 1-Wire
-temperature sensor (DS18B20) polled at 5 Hz. A latching safety cut-off
-immediately de-energised all actuators if the measured temperature reached
-40.0 °C, and the firmware rejected the sensor's power-on artefact value to
-prevent spurious trips; a missing or disconnected sensor also forced the device
-into the safe (stimulation-disabled) state. In the heating-control condition the
-warming element was regulated by an on–off thermostat about a 37.5 °C set point
-with 0.5 °C hysteresis. To equate the thermal
+temperature sensor (DS18B20) polled at 5 Hz. Because the sensor sits behind the contact surface and lags it during a
+ramp, the firmware estimated the skin-surface temperature from the sensor
+reading, a per-temperature-range gap table and the reading's slope (fitted
+against a reference probe at the contact point), and a latching safety cut-off
+immediately de-energised all actuators when the estimated surface reached
+37 °C (40 °C limit minus a 3 °C margin), with the raw reading reaching 40 °C as
+an independent backstop; the firmware rejected the sensor's power-on artefact
+value to prevent spurious trips, and a missing, disconnected or unresponsive
+sensor also forced the device into the safe (stimulation-disabled) state. To
+equate the thermal
 percept between conditions, the heating-control set point was not fixed but was
 matched to the temperature the NIR stimulation itself produced: in a separate
 calibration procedure the 10 Hz and 40 Hz conditions were each run for the
@@ -129,8 +138,10 @@ synchronised the streams to the order of 1 ms, which is well within the
 tolerance required for the present analyses.
 
 Markers were recorded as integer event codes. The marked events comprised, from
-the behavioural task: run onset and offset (with condition), tone onset, valid
-responses, anticipatory false alarms, and omissions; and from the device:
+the behavioural task: the blocked-light calibration and its segments, the pre
+gap, condition onset and offset (with condition), EMG- and reaction-time-phase
+boundaries, cooling breaks, post gaps, tone onset, valid responses, anticipatory
+false alarms, omissions, and thermal pause/resume; and from the device:
 stimulation onset and offset (with condition), heater switching, and safety
 events. A complete code–event lookup table is provided with the software.
 

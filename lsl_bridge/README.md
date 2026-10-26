@@ -30,8 +30,10 @@ python lsl_bridge.py
 It prints:
 
 ```
-[bridge] LSL Markers outlet 'tPBM-Markers' is live (type=Markers).
+[bridge] LSL Markers outlet 'tPBM-Markers' is live (type=Markers, format=int32).
 [bridge] WebSocket listening on ws://127.0.0.1:3535
+[bridge] Marker codebook (event -> code written into the EEG file):
+[bridge]   ... (the full code list; check it includes POST_START=44 ... CARD_REMOVE=54)
 ```
 
 **Order matters:** start this bridge **before** starting the NIC2 recording, and
@@ -49,11 +51,20 @@ point NIC2's LSL marker configuration at the outlet name `tPBM-Markers`
 
 ## Markers emitted
 
-Behavioural task (`index.html`):
-`RUN_START;cond=…`, `STIM`, `RESPONSE;rt=…`, `PREMATURE`, `NO_RESPONSE`, `RUN_END;cond=…`
+Task page (`index.html`), per participant: `BLOCKED_START/END` (48/49),
+`BLOCKED_SEG;cond=…` (50–52), `BLOCKED_OFF` (53), `CARD_REMOVE` (54),
+`PRE_START/END` (46/47); per condition: `SESSION_START;cond=…` (10–12),
+`EMG_START/END` (20/21), `COOL_START/END` (42/43), `RT_START/END` (22/23),
+`TONE` (1), `RESPONSE;rt=…` (2), `FALSE_ALARM` (3), `OMISSION` (4),
+`POST_START/END` (44/45), `SESSION_END;cond=…` (15–17); on a thermal trip
+`SESSION_PAUSE/RESUME` (40/41).
 
-Hardware dashboard (`arduino.html`):
-`STIM_ON;cond=…`, `STIM_OFF`, `HEATER_ON`, `HEATER_OFF`, `SAFETY_TRIP`
+Device telemetry (relayed by the task page's `arduino_link.js`, or by the
+hardware dashboard on the bench): `NIR_ON;cond=…` (31/32), `STIM_OFF` (29),
+`HEAT_ON`/`HEAT_OFF` (34/35; `HEATER_ON/OFF` are aliased), `SAFETY_TRIP` (99).
+Anything else is written as `255` and reported on stderr — never `0`, which
+the `.easy` trigger column cannot distinguish from "no marker". Full table:
+`analysis/trigger_codes.csv`.
 
 ## Quick self-test (no browser, no EEG)
 

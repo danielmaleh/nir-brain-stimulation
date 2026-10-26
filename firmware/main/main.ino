@@ -169,10 +169,11 @@ float heaterFeedforward = 0.0;       // last feedforward duty (logged)
 // before this. The ceiling only fires if the host never sends stop (e.g. a crash),
 // so the light/heater can never be left on indefinitely. Far above any single
 // stimulation block (2.5 min between cooling breaks since 2026-10-20).
-const unsigned long STIMULATION_DURATION_MS = 1080000; // 18 minutes (host ends runs well before this)
+const unsigned long STIMULATION_DURATION_MS = 240000;  // 4 minutes: longest host block is 2.5 min (host ends runs well before this)
 const unsigned long REST_DURATION_MS = 180000;         // 3 minutes of rest between conditions
 
 const unsigned long TEMP_POLL_INTERVAL_MS = 200;    // Poll temperature every 200ms
+const unsigned long SENSOR_CONVERSION_TIMEOUT_MS = 1000; // no finished conversion for this long = bus fault -> trip
 const unsigned long LOG_POLL_INTERVAL_MS = 1000;    // Log rest-phase countdown every 1 second
 
 // Timer1 compare values (CTC mode, prescaler 64 -> 4 us/tick) for a 50% duty pulse.
@@ -334,7 +335,7 @@ void setup() {
 
   // Header format for data output
   // TIMESTAMP_US,EVENT_TYPE,VALUE1,VALUE2
-  Serial.println(F("LOG_FORMAT: TIMESTAMP_US,EVENT_TYPE,VALUE1,VALUE2"));
+  Serial.println(F("LOG_FORMAT: TIMESTAMP_US,EVENT_TYPE,fields... | TEMP_LOG: temp_C,cond(-1=idle),surface_est_C | HEATER_PID: duty%,temp_C,target_C,feedforward% | PULSE: 1/0"));
   Serial.println(F("--------------------------------------------------"));
 }
 
@@ -349,6 +350,15 @@ void loop() {
   //    Runs in EVERY state, including SAFETY_TRIP, so the operator can watch the
   //    temperature come back down after a trip; the trip itself stays latched.
   if (sensorConnected && currentTimeMs - lastTempPollTimeMs >= TEMP_POLL_INTERVAL_MS) {
+    // A DS18B20 whose data line is held LOW (short, failing sensor) never reports a
+    // finished conversion, which would silently stop every read below -- no -127
+    // check, no cutoff, no TEMP_LOG -- while stimulation kept running. Conversions
+    // take <= 750 ms, so a second without one is a bus fault: fail safe.
+    if (currentTimeMs - lastTempPollTimeMs >= SENSOR_CONVERSION_TIMEOUT_MS
+        && currentState != STATE_SAFETY_TRIP) {
+      triggerSafetyShutdown("Sensor conversion timeout (1-Wire bus stuck)");
+      lastTempPollTimeMs = currentTimeMs;
+    }
     // Only read once the conversion has actually finished. Reading earlier returns
     // the previous scratchpad contents - on the first poll after reset that is the
     // +85 C power-on value, which would falsely trip the 40 C cutoff.
@@ -879,7 +889,14 @@ void cycleMode() {
     } else if (selectedCondition == COND_40HZ) {
       startNirPulse(TIMER1_OCR_40HZ);
     }
-    // COND_HEATING: runHeaterThermostat() takes over from loop().
+    else if (selectedCondition == COND_HEATING) {
+#if HEATER_USE_PID
+      resetHeaterPID();                  // fresh baseline/feedforward state for this run
+      Serial.print(micros());
+      Serial.println(F(",HEATER,1"));
+#endif
+      // runHeaterPID() / runHeaterThermostat() take over from loop().
+    }
 
     // Distinct event so the dashboard + LSL/EEG marker stream can timestamp
     // exactly when the active condition changed mid-run.
@@ -936,10 +953,24 @@ void handleSerialCommands() {
         break;
 
       case 'S':
-      case 's': // Simulate over-temperature event
+      case 's': // Simulate over-temperature event (raw-reading backstop path)
         if (currentState != STATE_SAFETY_TRIP) {
           Serial.println(F("# Simulating high temperature spike (41.5 C)..."));
           currentTemp = 41.5;
+          checkSafety();
+        }
+        break;
+
+      case 'E':
+      case 'e': // Simulate a high skin-surface ESTIMATE (the cutoff that normally fires)
+        // Raw reading untouched, so this exercises the estimate trip at SURFACE_CUTOFF
+        // and R's estimate hysteresis gate -- neither is reachable via 'S'. The next
+        // real reading recomputes the estimate, so R succeeds once the bench is cool.
+        if (currentState != STATE_SAFETY_TRIP) {
+          Serial.print(F("# Simulating skin-surface estimate "));
+          Serial.print(SURFACE_CUTOFF + 1.0, 1);
+          Serial.println(F(" C (raw reading unchanged)..."));
+          surfaceEstC = SURFACE_CUTOFF + 1.0;
           checkSafety();
         }
         break;
@@ -978,12 +1009,15 @@ void handleSerialCommands() {
           sensors.requestTemperatures();
           delay(200); // Small blocking delay for manual override verification
           float checkTemp = sensors.getTempC(tempDeviceAddress);
-          if (checkTemp != DEVICE_DISCONNECTED_C) {
+          // Treat the 85 C power-on artefact like a disconnected sensor: it must not
+          // enter the surface ring buffer (the loop rejects it too) or clear a trip.
+          bool validRead = (checkTemp != DEVICE_DISCONNECTED_C && checkTemp != DS18B20_POWERON_C);
+          if (validRead) {
             currentTemp = checkTemp;
             updateSurfaceEstimate(millis());   // re-evaluate the surface with the fresh reading
           }
 
-          if (checkTemp != DEVICE_DISCONNECTED_C && checkTemp < MAX_SAFE_TEMP
+          if (validRead && checkTemp < MAX_SAFE_TEMP
               && surfaceEstC < SURFACE_CUTOFF - SURFACE_RESET_HYST_C) {
             digitalWrite(PIN_LED_ERROR, LOW);
             suspectReadCount = 0;

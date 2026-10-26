@@ -45,10 +45,17 @@ browser talks to the bridge over `localhost` and to the Arduino over USB.
 git clone https://github.com/danielmaleh/nir-brain-stimulation.git
 cd nir-brain-stimulation
 ```
-(The repo is private, so Git will prompt for your GitHub login. If you have the
-GitHub CLI: `gh repo clone danielmaleh/nir-brain-stimulation`.)
+(The repo is public; no login is needed to clone or pull.)
 
-To pull later updates: `git pull`.
+To pull later updates: `git pull`, then **always**:
+1. stop and restart `lsl_bridge.py` and check its start-up codebook lists
+   `POST_START=44 … CARD_REMOVE=54` — a bridge left running from an older
+   checkout writes the newer markers as `255`;
+2. hard-reload the app page (Ctrl+Shift+R) and confirm the page source loads
+   `app.js?v=22` (or newer) — Chrome caches the old script otherwise;
+3. if `firmware/` changed, the board must be reflashed (done from the Mac with
+   `arduino-cli`; this PC only talks to it). The page shows which build the
+   board runs when you connect.
 
 ---
 
@@ -79,22 +86,48 @@ starts recording, or NIC2 won't find it.
    python -m http.server 8000
    ```
 
-6. **Open Chrome** at `http://localhost:8000/index.html` (task) and
-   `http://localhost:8000/arduino.html` (hardware). Click **Connect to Arduino**
-   and pick the Arduino's COM port. The pages auto-connect to the bridge — you'll
-   see `Marker bridge connected` in the on-page console.
+6. **Open Chrome** at `http://localhost:8000/index.html` (the task page — it
+   drives the device itself; do **not** connect the hardware dashboard
+   `arduino.html` during a session, only one tab can hold the port). Click
+   **Connect NIR Device** and pick the Arduino's COM port. In the on-page
+   console confirm:
+   - `Marker bridge connected`
+   - `Firmware build: PROTOCOL (thermal cutoff 40 °C)` — appears ~2 s after
+     connecting. If it says **BENCH**, or never appears, stop: the board must be
+     reflashed from `firmware/main`. A real session is refused on a BENCH build
+     and cannot start without a connected device.
 
-7. Run the session. **Stop the NIC2 recording** at the end — the markers are now
-   inside the file.
+7. **Put the blocking card over the light on the device NOW**, enter the
+   participant and session IDs, and press **Start Session**. The first 2 min are
+   the blocked-light calibration (30 s each of 10 Hz, 40 Hz, heating, off, with
+   the card on); the screen then says **Remove the Card** and gives you 10 s.
+   After that the session runs itself: pre gap, three 13.5-min conditions with
+   rests. Keep your eyes on the sidebar.
+
+8. **Sham question.** Each time a block's stimulation ends (start of its
+   1.5-min post gap) a yellow panel appears in the sidebar: ask the participant
+   *"Did you notice the stimulation during this block?"* and click
+   **Yes / No / Don't know**. The last block's panel stays open after the
+   session ends until you answer it.
+
+9. **Stop the NIC2 recording** at the end — the markers are now inside the
+   file. The app downloads three files by itself when the session ends (or is
+   aborted): `..._session.csv`, `..._temperature.csv` and `..._full.json`.
+   The first time, Chrome asks whether `localhost:8000` may download multiple
+   files — click **Allow**. Keep all three with the NIC2 recording.
 
 ---
 
 ## D. Before real participants — one dry run
 
-Record ~60 seconds and confirm the markers actually landed in the NIC2 file at
-sensible times (a `STIM` every ~5-7 s, each followed by `RESPONSE` or
-`NO_RESPONSE`; `STIM_ON;cond=...` when a hardware run starts). This catches the
-two things that can only fail on this machine:
+Run one full **Test session** (tick the checkbox; identical timing, CSV stamped
+TEST) with the NIC2 recording on, and confirm the integer markers landed in the
+file at sensible times: `48` then `51` and `31` in the first minute (blocked
+10 Hz), `54` at ~2:00, `46` at ~2:10, the first `10`/`11`/`12` at ~3:40, then
+`20`, `42`/`43` around the EMG midpoint, `22` at ~9:40 followed by a `1` every
+~5–7 s each answered by `2` or `4`, `44`/`45` and `15`/`16`/`17` at the block
+end. The full table is `analysis/trigger_codes.csv`. This catches the two
+things that can only fail on this machine:
 - `liblsl` / `pylsl` not importing (fix: redo step A2), and
 - NIC2 not ingesting the external marker stream on your NIC2 version.
 
@@ -110,9 +143,13 @@ automatic). No code changes needed.
 - **Chrome Memory Saver** can discard a backgrounded tab and reload it, which
   makes the dashboard re-grab the serial port. Add `localhost:8000` to
   `chrome://settings/performance` → "Always keep these sites active".
-- **Only one program can hold the COM port at a time.** The two app tabs now
-  coordinate automatically (see `APP/serial_lock.js`), but nothing else
-  (Arduino IDE Serial Monitor, PuTTY) can be open on that COM port while the
-  dashboard is using it.
+- **Only one program can hold the COM port at a time.** During a session the
+  task page must hold it (it drives the stimulation); the hardware dashboard
+  tab yields to it automatically (see `APP/serial_lock.js`), but nothing else
+  (Arduino IDE Serial Monitor, PuTTY) can be open on that COM port.
+- **Automatic downloads:** the session's three files are downloaded by the
+  page at the end. If Chrome silently blocks the 2nd and 3rd file, allow
+  "Automatic downloads" for `localhost:8000` in
+  `chrome://settings/content/automaticDownloads`.
 - **Firewall:** everything is `localhost`, so no inbound firewall rule is needed
   as long as the bridge, browser, and NIC2 are all on this one PC.

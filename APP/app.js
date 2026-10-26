@@ -356,7 +356,7 @@ function handleThermalShutdown(reason) {
   elStatsTimeLeft.textContent = 'PAUSED';
   showParticipantMessage('⚠ Paused — Cooling Down',
     `Skin temperature reached the safety limit and stimulation was cut.<br>` +
-    `The session will resume automatically once it cools to ${RESUME_TEMP_C} °C.`);
+    `The session will resume automatically once the estimated skin surface is back to ${RESUME_SURFACE_C} °C (sensor ≤ ${RESUME_TEMP_C} °C).`);
 }
 
 /**
@@ -392,6 +392,7 @@ async function resumeAfterThermal() {
 
   // Brief "good temperature" confirmation, then continue the phase where it left off.
   setTimeout(() => {
+    if (!sessionActive || !trialRunning) { resumingThermal = false; pausedForThermal = false; return; }
     const remaining = pausedRemainingMs;
     const phase = pausedPhase;
     pausedForThermal = false;
@@ -726,6 +727,24 @@ function startTrial() {
       + 'branch, or tick "Test session" for a bench dry-run.');
     return;
   }
+  // A real session with no device, or with a device whose build is still unknown, would
+  // otherwise run all three conditions with NO stimulation (runCondition just logs) or on
+  // an unverified build. Refuse both; only test sessions may run without a device.
+  if (!wantTest) {
+    const link = window.ArduinoLink;
+    if (!link || !link.isConnected()) {
+      alert('No NIR device connected. A real session needs the device: click "Connect NIR Device" '
+        + 'and wait for the console to show "Firmware build: PROTOCOL" before starting.\n\n'
+        + 'Tick "Test session" to dry-run the task without the device.');
+      return;
+    }
+    if (!build) {
+      alert('The device is connected but has not reported its firmware build yet (the boot '
+        + 'banner arrives ~2 s after connecting). Wait for "Firmware build: PROTOCOL" in the '
+        + 'console, then press Start again. If it never appears, the board runs old firmware — reflash firmware/main.');
+      return;
+    }
+  }
   if (wantTest) {
     if (build && build.type === 'PROTOCOL') {
       logToConsole('SYSTEM', 'Test session on a PROTOCOL build: the 40 °C cutoff is ACTIVE and may trip during the test (safe — the session auto-pauses and resumes).');
@@ -874,8 +893,13 @@ function recordNoticeAnswer(answer, runIdx = noticePendingRun) {
   recordTemperature('STIM_NOTICED_' + answer.toUpperCase());
   logToConsole('SYSTEM', `Noticed stimulation (block ${runIdx + 1}): ${answer}`);
   if (runIdx === noticePendingRun) { noticePendingRun = null; hideNoticePrompt(); }
-  persistProgress();
-  saveSessionToStorage();
+  if (sessionActive) {
+    persistProgress();   // snapshot incl. the in-progress run (the save below would drop it)
+  } else {
+    // Answered after the session ended (last block): persist and export the files again.
+    saveSessionToStorage();
+    exportSessionFiles(currentSessionData);
+  }
 }
 
 /** Mark any unanswered blocks at session end so the export never silently omits them. */
@@ -883,12 +907,16 @@ function finalizeNoticeAnswers() {
   currentSessionData.noticeAnswers = currentSessionData.noticeAnswers || {};
   currentSessionData.runs.forEach((run, idx) => {
     if (!run.noticedStimulation) {
-      run.noticedStimulation = 'unanswered';
-      currentSessionData.noticeAnswers[idx + 1] = 'unanswered';
+      // The block whose prompt is still open (normally the last one, whose post gap just
+      // ended) stays answerable after the session: 'pending' in the export, re-exported
+      // once the answer is entered. Earlier blocks that were skipped are final.
+      const answer = (idx === noticePendingRun) ? 'pending' : 'unanswered';
+      run.noticedStimulation = answer;
+      currentSessionData.noticeAnswers[idx + 1] = answer;
     }
   });
-  noticePendingRun = null;
-  hideNoticePrompt();
+  if (noticePendingRun === null) hideNoticePrompt();
+  else logToConsole('SYSTEM', `Block ${noticePendingRun + 1} sham question still open — enter the answer and the files will be exported again with it.`);
 }
 
 /** Build the behavioural CSV text from a session object (also used by the history buttons). */
@@ -1072,6 +1100,21 @@ function startRun() {
   logEvent('0.000', 'SESSION_START', null);
   sendMarker('SESSION_START;cond=' + condCode(currentCondition));
 
+  // A trip that latched outside an active phase (blocked calibration, pre gap, rest) is
+  // never auto-resumed by the pause machinery, and runCondition would merely log a line
+  // while the run proceeded with no stimulation. Clear it if the temperature allows,
+  // otherwise refuse to start this run.
+  if (window.ArduinoLink && ArduinoLink.isTripped()) {
+    ArduinoLink.resetTrip().then(ok => {
+      if (ok) { logToConsole('SYSTEM', 'Device safety trip cleared before the run; starting stimulation.'); ArduinoLink.runCondition(currentCondition); }
+      else {
+        logToConsole('ERROR', 'Device is still in SAFETY_TRIP (not cooled enough) — this run would have NO stimulation. Aborting the session.');
+        alert('The NIR device is latched in a safety trip and has not cooled enough to reset. The session was aborted so no block runs without stimulation. Let it cool, reset on the hardware dashboard, and start again.');
+        abortTrial('DEVICE_TRIPPED');
+      }
+    });
+  }
+
   // Heating: arm the replay provider BEFORE the device starts, so runCondition's own
   // H command already carries the replayed target instead of the static profile.
   if (currentCondition === 'Heating Control') startHeaterReplay();
@@ -1186,6 +1229,11 @@ function coolingBreak(onDone) {
     logEvent(((performance.now() - trialStartPerfTime) / 1000).toFixed(3), 'COOL_END', null);
     sendMarker('COOL_END');
     if (window.ArduinoLink) await ArduinoLink.runCondition(sessionConditions[currentRunIndex]);
+    // The restart above takes up to a few seconds. If the session was aborted meanwhile,
+    // stop here (abort already sent 'x'); if a thermal trip landed meanwhile, hand the
+    // second half to the pause machinery as a zero-length frozen timer so resume starts it.
+    if (!sessionActive || !trialRunning) { if (window.ArduinoLink) ArduinoLink.stop(); inCoolingBreak = false; return; }
+    if (pausedForThermal) { pausedOnDone = onDone; pausedRemainingMs = 0; pausedInCooling = false; inCoolingBreak = false; return; }
     logToConsole('SYSTEM', `Cooling break over — stimulation back on, ${runPhase} phase resumes.`);
     // Keep task events blocked until the second half actually starts: restarting the
     // device can take seconds, and a press during that restart is not a task response.
@@ -1219,6 +1267,7 @@ function resumeRtSecondHalf() {
  *  Uses module-level bookkeeping so a thermal shutdown can freeze and later resume it. */
 function runPhaseTimer(durationMs, onDone) {
   clearInterval(sessionTimer);
+  if (!trialRunning) return;   // aborted/ended while an async device restart was pending
   phaseStartMs = Date.now();
   phaseDurationMs = durationMs;
   phaseOnDone = onDone;
@@ -1352,6 +1401,7 @@ function endRun() {
     heatingTargetSource: currentCondition === 'Heating Control' ? heaterTargetSource : '',
     noticedStimulation: (currentSessionData.noticeAnswers || {})[currentRunIndex + 1] || null
   });
+  currentTrialData = null;   // run is saved; an abort during the rest must not push it again
 
   // Persist every completed session immediately (not just at the very end).
   saveSessionToStorage();

@@ -21,13 +21,13 @@ The goal is to build a custom Arduino-controlled head-mounted device that delive
 | Parameter | Value |
 |---|---|
 | Wavelength | 850 nm |
-| Target fluence | ~1.25 J/cm² |
+| Fluence per condition | measured irradiance × 600 s (nominal ~12.6 J/cm² at ~21 mW/cm²); the historical 1.25 J/cm² target was a 1-min design — set from the power-meter measurement before participants |
 | Illumination area | ~4 cm² |
 | Total energy per condition | ~50 J nominal (84 mW × 600 s); the 2026-10 protocol delivers 10 min per condition |
 | Average optical power | ~84 mW |
 | Peak optical power | ~168 mW |
 | Duty cycle | 50% |
-| Exposure duration | 10 min per condition (four 2.5-min blocks with 1-min cooling breaks) — the ~1.25 J/cm² row above dates from a 1-min design; fluence is irradiance × 600 s and must be set from the measured irradiance |
+| Exposure duration | 10 min per condition, as three light-on blocks (2.5, 5 and 2.5 min) separated by two 1-min cooling breaks |
 
 ## Hardware (Ordered/In Use)
 
@@ -54,18 +54,15 @@ The goal is to build a custom Arduino-controlled head-mounted device that delive
 The `APP/` directory houses the client-side web application used by researchers to orchestrate the reaction-time test and log measurements with high precision.
 
 ### Key Specifications:
-- **Conditions**: 4 randomized runs per session covering all possibilities exactly once:
-  1. `Heating Control` (40 seconds)
-  2. `10 Hz NIR` (40 seconds)
-  3. `40 Hz NIR` (40 seconds)
-  4. `Wrist EMG` (20 seconds, runs silently with no spacebar clicks)
-- **Rest Interval**: Configurable intermediate rest delay between runs (defaults to 180 seconds / 3 minutes).
+- **Conditions**: 3 randomized conditions per session — `Heating Control`, `10 Hz NIR`, `40 Hz NIR` — each 13.5 min: 5-min silent EMG phase + 5-min reaction-time phase (each split by a 1-min stimulation-off cooling break) + 1.5-min stimulation-off post gap. Before the first condition: a blocked-light calibration (card on the device, 30 s per condition + off), a 10-s card-removal window and a 1.5-min pre gap. See `docs/protocol_duration_change.md`.
+- **Sham-awareness question**: when a block's stimulation ends the experimenter is prompted to ask whether the participant noticed it (yes / no / don't know); stored with the run.
+- **Rest Interval**: Configurable intermediate rest delay between conditions (defaults to 180 seconds / 3 minutes).
 - **Stimulus Protocol**: Non-alarming, programmatically generated 600 Hz sine wave tone (via Web Audio API) with a smooth envelope (10ms attack, 150ms decay) to prevent audio clicks/pops.
 - **Timer Jitter**: Stimulus triggers exactly 5.0 seconds base + random [0.0, 2.0] seconds jitter after the last recorded keypress (or the last missed-response window — see below).
 - **High-Rate Keypress Capture**: Pressing the `Space bar` is intercepted in the capture phase of the browser window using `performance.now()` (microsecond precision, immune to system clock shifts) and filtered against keyboard repeat events.
-- **Response Window / Omissions**: Each tone opens a 2.0-second response window. If no keypress arrives, the tone is logged as a `NO_RESPONSE` omission (counted in `missedCount`, shown live in the stats strip and in the session summary) and the run continues — the next stimulus is scheduled 5s + jitter from the window close. This keeps a run from stalling when a participant fails to respond.
+- **Response Window / Omissions**: Each tone opens a 2.0-second response window. If no keypress arrives, the tone is logged as an `OMISSION` (counted in `missedCount`, shown live in the stats strip and in the session summary) and the run continues — the next stimulus is scheduled 5s + jitter from the window close. This keeps a run from stalling when a participant fails to respond.
 - **Anticipation Reset**: Premature keypresses (before the tone is played) register as a False Alarm and reset the timer, scheduling the next stimulus 5s + jitter from that premature press.
-- **Data Persistence**: Trial logs are updated in real-time in `localStorage` for safety and are immediately exportable to a formatted `.csv` file.
+- **Data Persistence**: Trial logs are updated in real-time in `localStorage` for safety; at session end (or abort) the app automatically downloads the session `.csv`, the temperature `.csv` and a full `.json`.
 
 
 ## Coding Conventions
