@@ -54,9 +54,9 @@ The goal is to build a custom Arduino-controlled head-mounted device that delive
 The `APP/` directory houses the client-side web application used by researchers to orchestrate the reaction-time test and log measurements with high precision.
 
 ### Key Specifications:
-- **Conditions**: 3 randomized conditions per session — `Heating Control`, `10 Hz NIR`, `40 Hz NIR` — each 13.5 min: 5-min silent EMG phase + 5-min reaction-time phase (each split by a 1-min stimulation-off cooling break) + 1.5-min stimulation-off post gap. Before the first condition: a blocked-light calibration (card on the device, 30 s per condition + off), a 10-s card-removal window and a 1.5-min pre gap. See `docs/protocol_duration_change.md`.
+- **Conditions**: 3 randomized conditions per session — `Heating Control`, `10 Hz NIR`, `40 Hz NIR` — each 13.5 min: 5-min silent EMG phase + 5-min reaction-time phase (each split by a 1-min stimulation-off cooling break) + a stimulation-off gap (default 1.5 min) that ends the block and separates it from the next. Before the first condition: a blocked-light calibration (card on the device, 30 s per condition + off), a 10-s card-removal window and a 1.5-min pre gap. See `docs/protocol_duration_change.md`.
 - **Sham-awareness question**: when a block's stimulation ends the experimenter is prompted to ask whether the participant noticed it (yes / no / don't know); stored with the run.
-- **Rest Interval**: Configurable intermediate rest delay between conditions (defaults to 180 seconds / 3 minutes).
+- **Off gap**: the 1.5-min stimulation-off post gap (configurable in the app) is the only gap between conditions and also ends the last one — there is no separate rest.
 - **Stimulus Protocol**: Non-alarming, programmatically generated 600 Hz sine wave tone (via Web Audio API) with a smooth envelope (10ms attack, 150ms decay) to prevent audio clicks/pops.
 - **Timer Jitter**: Stimulus triggers exactly 5.0 seconds base + random [0.0, 2.0] seconds jitter after the last recorded keypress (or the last missed-response window — see below).
 - **High-Rate Keypress Capture**: Pressing the `Space bar` is intercepted in the capture phase of the browser window using `performance.now()` (microsecond precision, immune to system clock shifts) and filtered against keyboard repeat events.

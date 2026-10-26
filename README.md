@@ -38,9 +38,9 @@ The device works standalone over USB; no laptop-side runtime is required beyond 
 | **Participants** | 20 healthy adults, one session each |
 | **Design** | Within-subject; the three conditions run in a per-participant randomised order |
 | **Conditions** | `Heating Control` · `10 Hz NIR` · `40 Hz NIR` |
-| **Per condition** | 13.5 min — a 5-min silent EMG-baseline phase, then a 5-min reaction-time phase, each split at its midpoint by a 1-min cooling break (stimulation off), then a 1.5-min stimulation-off post gap that ends every condition. Stimulation is on for all 10 task minutes. (Changed 2026-10-20 from 10 + 7 min — see `docs/protocol_duration_change.md`.) |
-| **Rest between conditions** | Configurable, default 3 min |
-| **Total in-protocol time** | ~50 min per participant (a 2.2-min blocked-light calibration, a 1.5-min stimulation-off pre gap, three 13.5-min conditions, two 3-min rests), plus EEG capping and setup |
+| **Per condition** | 13.5 min — a 5-min silent EMG-baseline phase, then a 5-min reaction-time phase, each split at its midpoint by a 1-min cooling break (stimulation off), then the stimulation-off gap (default 1.5 min) that ends every condition and separates it from the next. Stimulation is on for all 10 task minutes. (Changed 2026-10-20 from 10 + 7 min — see `docs/protocol_duration_change.md`.) |
+| **Off gap after each block** | Stimulation off for a configurable gap (default 1.5 min, same as the pre gap) — this one window both ends the block and separates it from the next; the last block ends with it too |
+| **Total in-protocol time** | ~44 min per participant at the defaults (2.2-min blocked-light calibration, 1.5-min pre gap, three 13.5-min conditions each ending in its 1.5-min off gap), plus EEG capping and setup |
 | **Measures** | Continuous EEG (Enobio 32 via NIC2), wrist EMG on EXG channels, auditory reaction time, and a per-block sham-awareness answer (yes / no / don't know, asked by the experimenter when each block's stimulation ends) |
 | **Blocked-light calibration** | Before the pre gap, with a card physically covering the light: 30 s each of 10 Hz, 40 Hz, heating and off, as a per-participant noise reference for the drive electronics; then a 10-s window to remove the card |
 

@@ -20,7 +20,8 @@ def const(name):
     return eval(m.group(1).split("//")[0]) / 1000.0   # ms -> s (expressions like 5 * 60 * 1000)
 EMG, RT, COOL = const("EMG_PHASE_MS"), const("RT_PHASE_MS"), const("COOLING_BREAK_MS")
 PRE, POST, SEG, CARD = const("PRE_GAP_MS"), const("POST_GAP_MS"), const("BLOCKED_SEG_MS"), const("CARD_REMOVE_MS")
-REST = 180.0  # app default (configurable)
+PAUSE_DEFAULT = float(re.search(r'id="pause-duration"[^>]*value="(\d+)"', (root / "APP/index.html").read_text()).group(1))
+POST = PAUSE_DEFAULT  # the off gap after each block: the config field default (index.html), one window, also separates blocks
 segments = re.search(r"const BLOCKED_SEGMENTS = \[([^\]]+)\]", src).group(1)
 segments = [s.strip().strip("'\"") for s in segments.split(",")]
 
@@ -32,7 +33,7 @@ def condition_blocks(t0):
     b = []; t = t0
     for kind, dur, label, on in [("emg", EMG/2, "EMG", True), ("cool", COOL, "cool", False), ("emg", EMG/2, "EMG", True),
                                  ("rt", RT/2, "RT", True), ("cool", COOL, "cool", False), ("rt", RT/2, "RT", True),
-                                 ("post", POST, "post gap", False)]:
+                                 ("post", POST, "off gap", False)]:
         b.append((t, dur, kind, label, on)); t += dur
     return b, t
 
@@ -46,7 +47,6 @@ cond_starts = []
 for i in range(3):
     cond_starts.append(t)
     cb, t = condition_blocks(t); blocks += cb
-    if i < 2: blocks.append((t, REST, "rest", "rest", False)); t += REST
 total = t
 
 fig = plt.figure(figsize=(16, 9.2), dpi=150)
@@ -62,7 +62,7 @@ ax.annotate("blocked-light\ncalibration\n(card on)", xy=((4*SEG/2)/60, 1.75), ha
 ax.annotate(f"pre gap\n{PRE/60:.1f} min", xy=((4*SEG+CARD+PRE/2)/60, -0.55), ha="center", va="top", fontsize=8)
 ax.set_yticks([0, 1]); ax.set_yticklabels(["light / heater", "phase"]); ax.set_ylim(-1.1, 2.9)
 ax.set_xlim(0, total/60); ax.set_xlabel("minutes from Start")
-ax.set_title(f"Whole session — {total/60:.1f} min at the default 3-min rests", loc="left", fontsize=11, fontweight="bold")
+ax.set_title(f"Whole session — {total/60:.1f} min at the default {POST/60:g}-min off gaps", loc="left", fontsize=11, fontweight="bold")
 for sp in ("top", "right"): ax.spines[sp].set_visible(False)
 
 # ---------------- blocked-light zoom ----------------
@@ -117,7 +117,7 @@ ax3.set_title(f"One condition — {end/60:g} min: light on {sum(d for _, d in on
 for sp in ("top", "right"): ax3.spines[sp].set_visible(False)
 
 fig.legend(handles=[Patch(color=C["emg"], label="EMG phase (eyes closed, no task)"), Patch(color=C["rt"], label="reaction-time phase (tones + spacebar)"),
-                    Patch(color=C["cool"], label="cooling break"), Patch(color=C["post"], label="post gap"), Patch(color=C["rest"], label="rest"),
+                    Patch(color=C["cool"], label="cooling break"), Patch(color=C["post"], label="off gap (ends the block, separates blocks)"),
                     Patch(color=C["blocked"], label="blocked-light calibration"), Patch(color=C["on"], label="light / heater ON")],
            loc="lower center", ncol=4, fontsize=8.5, frameon=False, bbox_to_anchor=(0.5, 0.0))
 fig.suptitle("tPBM session timeline — drawn from APP/app.js constants (2026-10-26)", fontsize=13, fontweight="bold", y=0.995)

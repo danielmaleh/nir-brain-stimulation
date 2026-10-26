@@ -12,7 +12,7 @@ const constants = ['EMG_PHASE_MS', 'RT_PHASE_MS', 'TEST_EMG_PHASE_MS', 'TEST_RT_
 const names = ['emgPhaseMs', 'rtPhaseMs', 'coolingBreakMs', 'phaseSplit', 'handleKeyPress', 'scheduleNextStimulus', 'triggerStimulus',
   'handleMissedResponse', 'startRtPhase', 'coolingBreak', 'resumeRtSecondHalf', 'runPhaseTimer', 'phaseTick',
   'handleThermalShutdown', 'resumeAfterThermal', 'abortTrial', 'logEvent', 'sendMarker',
-  'endRtPhase', 'postGap', 'stopHeaterReplay'];
+  'endRtPhase', 'postGap', 'postGapMs', 'stopHeaterReplay'];
 const code = constants.map(name => {
   const line = source.match(new RegExp(`^const ${name} = .*$`, 'm'));
   assert.ok(line, `app.js no longer defines ${name}`);
@@ -55,7 +55,7 @@ function makeApp() {
     ArduinoLink: link,
     trialRunning: true, sessionActive: true, testModeActive: false, inPausePhase: false, runPhase: null,
     inCoolingBreak: false, inPostGap: false, inPreGap: false, heaterReplayTimer: null,
-    inBlockedPhase: false, noticePendingRun: null, finalizeNoticeAnswers: noop, exportSessionFiles: noop, hideNoticePrompt: noop, promptNoticeQuestion: noop, heaterTargetSource: 'none',
+    inBlockedPhase: false, noticePendingRun: null, document: { getElementById: () => ({ value: '90' }) }, finalizeNoticeAnswers: noop, exportSessionFiles: noop, hideNoticePrompt: noop, promptNoticeQuestion: noop, heaterTargetSource: 'none',
     pausedForThermal: false, resumingThermal: false, pausedPhase: null,
     pausedRemainingMs: 0, pausedOnDone: null, pausedInCooling: false,
     phaseStartMs: 0, phaseDurationMs: 0, phaseOnDone: null,
